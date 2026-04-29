@@ -24,6 +24,7 @@ export interface ExtractionResult {
   markdown?: string;
   html?: string;
   json?: MarkerBlock | Record<string, unknown>;
+  images?: Record<string, string> | null;
   extraction_schema_json?: unknown;
   page_count?: number;
   runtime?: number;

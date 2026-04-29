@@ -1,7 +1,39 @@
+import { useMemo } from "react";
 import { MarkerBlock } from "@/lib/types";
 
 interface BlocksViewProps {
   root: MarkerBlock | Record<string, unknown> | undefined | null;
+  images?: Record<string, string> | null;
+}
+
+function guessMimeFromName(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "png") return "image/png";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "webp") return "image/webp";
+  if (ext === "gif") return "image/gif";
+  if (ext === "svg") return "image/svg+xml";
+  return "image/png";
+}
+
+function toDataUrl(name: string, value: string): string {
+  // Datalab returns either a bare base64 string or already a data: URL.
+  if (value.startsWith("data:")) return value;
+  return `data:${guessMimeFromName(name)};base64,${value}`;
+}
+
+function inlineImages(html: string, images: Record<string, string> | null | undefined): string {
+  if (!images || !html) return html;
+  // Replace src="filename" / src='filename' with the matching data URL.
+  return html.replace(/src=(["'])([^"']+)\1/g, (match, quote, src) => {
+    // Try direct hit, then basename only.
+    const direct = images[src];
+    if (direct) return `src=${quote}${toDataUrl(src, direct)}${quote}`;
+    const base = src.split("/").pop() ?? src;
+    const fromBase = images[base];
+    if (fromBase) return `src=${quote}${toDataUrl(base, fromBase)}${quote}`;
+    return match;
+  });
 }
 
 interface FlatBlock {
@@ -90,8 +122,8 @@ function colorForType(type: string): string {
   return TYPE_COLORS[type] || "border-l-muted-foreground text-muted-foreground";
 }
 
-export function BlocksView({ root }: BlocksViewProps) {
-  const pages = getPages(root);
+export function BlocksView({ root, images }: BlocksViewProps) {
+  const pages = useMemo(() => getPages(root), [root]);
 
   if (pages.length === 0) {
     return (
@@ -128,8 +160,8 @@ export function BlocksView({ root }: BlocksViewProps) {
                     {block.type}
                   </div>
                   <div
-                    className="prose prose-sm dark:prose-invert max-w-none [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-border [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:p-2 [&_td]:align-top text-foreground"
-                    dangerouslySetInnerHTML={{ __html: block.html }}
+                    className="prose prose-sm dark:prose-invert max-w-none [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded [&_img]:border [&_img]:border-border [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-border [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:p-2 [&_td]:align-top text-foreground"
+                    dangerouslySetInnerHTML={{ __html: inlineImages(block.html, images) }}
                   />
                 </div>
               ))
@@ -151,8 +183,10 @@ export function flattenAllBlocks(
 
 export function blocksToHtml(
   root: MarkerBlock | Record<string, unknown> | null | undefined,
+  images?: Record<string, string> | null,
 ): string {
-  return flattenAllBlocks(root)
+  const joined = flattenAllBlocks(root)
     .map((b) => b.html)
     .join("\n\n");
+  return inlineImages(joined, images);
 }

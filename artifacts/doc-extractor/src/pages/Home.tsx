@@ -27,8 +27,8 @@ export default function Home() {
   const recentExtractions = useRecentExtractions();
 
   const blockHtml = useMemo(
-    () => (result?.json ? blocksToHtml(result.json) : ""),
-    [result?.json],
+    () => (result?.json ? blocksToHtml(result.json, result.images) : ""),
+    [result?.json, result?.images],
   );
 
   const downloadable = useMemo(() => {
@@ -231,7 +231,7 @@ export default function Home() {
                     <TabsContent value="blocks" className="mt-2">
                       <div className="p-4 rounded-md border border-border bg-secondary/20 min-h-[400px] max-h-[700px] overflow-y-auto">
                         {result.json ? (
-                          <BlocksView root={result.json} />
+                          <BlocksView root={result.json} images={result.images} />
                         ) : result.markdown ? (
                           <pre className="whitespace-pre-wrap font-sans text-sm">{result.markdown}</pre>
                         ) : (
