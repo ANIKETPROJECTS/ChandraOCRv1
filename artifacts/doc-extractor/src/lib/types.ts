@@ -8,12 +8,23 @@ export interface SchemaField {
   description: string;
 }
 
+export interface MarkerBlock {
+  id?: string;
+  block_type?: string;
+  html?: string;
+  polygon?: number[][];
+  bbox?: number[];
+  section_hierarchy?: Record<string, string>;
+  images?: Record<string, string> | null;
+  children?: MarkerBlock[] | null;
+}
+
 export interface ExtractionResult {
   status: "processing" | "complete" | "error";
   markdown?: string;
   html?: string;
-  json?: any;
-  extraction_schema_json?: any;
+  json?: MarkerBlock | Record<string, unknown>;
+  extraction_schema_json?: unknown;
   page_count?: number;
   runtime?: number;
   error?: string;

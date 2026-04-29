@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from "react";
-import { UploadCloud, FileText, CheckCircle, AlertCircle, X, Download, Copy, Trash2, Plus, Clock, FileJson, Settings2 } from "lucide-react";
+import { useCallback, useRef, useMemo } from "react";
+import { UploadCloud, FileText, CheckCircle, AlertCircle, X, Download, Copy, Plus, Clock, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,8 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useExtractor, useRecentExtractions } from "@/hooks/use-extractor";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { BlocksView, blocksToHtml } from "@/components/blocks-view";
 
 export default function Home() {
   const { toast } = useToast();
@@ -19,7 +18,6 @@ export default function Home() {
   const {
     file, setFile,
     mode, setMode,
-    outputFormat, setOutputFormat,
     useSchema, setUseSchema,
     schemaFields, setSchemaFields,
     status, result, error, elapsedTime,
@@ -27,6 +25,29 @@ export default function Home() {
   } = useExtractor();
 
   const recentExtractions = useRecentExtractions();
+
+  const blockHtml = useMemo(
+    () => (result?.json ? blocksToHtml(result.json) : ""),
+    [result?.json],
+  );
+
+  const downloadable = useMemo(() => {
+    if (!result) return { content: "", filename: "extraction.txt", type: "text/plain" };
+    if (result.json) {
+      return {
+        content: JSON.stringify(result.json, null, 2),
+        filename: "extraction.json",
+        type: "application/json",
+      };
+    }
+    if (result.markdown) {
+      return { content: result.markdown, filename: "extraction.md", type: "text/markdown" };
+    }
+    if (result.html) {
+      return { content: result.html, filename: "extraction.html", type: "text/html" };
+    }
+    return { content: "", filename: "extraction.txt", type: "text/plain" };
+  }, [result]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -189,43 +210,51 @@ export default function Home() {
                     <CardDescription>Processed in {result.runtime?.toFixed(1) || elapsedTime} seconds</CardDescription>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(result.markdown || result.html || JSON.stringify(result.json, null, 2) || "")}>
+                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(downloadable.content)}>
                       <Copy className="w-4 h-4 mr-2" /> Copy
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => downloadFile(result.markdown || "", "extracted.md", "text/markdown")}>
+                    <Button variant="outline" size="sm" onClick={() => downloadFile(downloadable.content, downloadable.filename, downloadable.type)}>
                       <Download className="w-4 h-4 mr-2" /> Download
                     </Button>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <Tabs defaultValue="preview" className="w-full mt-4">
-                    <TabsList className="grid w-full grid-cols-4">
-                      <TabsTrigger value="preview">Preview</TabsTrigger>
-                      <TabsTrigger value="raw">Raw Text</TabsTrigger>
+                  <Tabs defaultValue="blocks" className="w-full mt-4">
+                    <TabsList className="grid w-full grid-cols-5">
+                      <TabsTrigger value="blocks">Blocks</TabsTrigger>
+                      <TabsTrigger value="html">HTML</TabsTrigger>
+                      <TabsTrigger value="json">JSON</TabsTrigger>
                       <TabsTrigger value="structured" disabled={!result.extraction_schema_json}>Structured Data</TabsTrigger>
                       <TabsTrigger value="meta">Metadata</TabsTrigger>
                     </TabsList>
-                    
-                    <TabsContent value="preview" className="p-4 rounded-md border border-border bg-card mt-2 min-h-[400px] max-h-[600px] overflow-y-auto prose dark:prose-invert max-w-none">
-                      {result.markdown ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.markdown}</ReactMarkdown>
-                      ) : result.html ? (
-                        <div dangerouslySetInnerHTML={{ __html: result.html }} />
-                      ) : (
-                        <pre className="font-mono text-sm">{JSON.stringify(result.json, null, 2)}</pre>
-                      )}
+
+                    <TabsContent value="blocks" className="mt-2">
+                      <div className="p-4 rounded-md border border-border bg-secondary/20 min-h-[400px] max-h-[700px] overflow-y-auto">
+                        {result.json ? (
+                          <BlocksView root={result.json} />
+                        ) : result.markdown ? (
+                          <pre className="whitespace-pre-wrap font-sans text-sm">{result.markdown}</pre>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No block data available.</p>
+                        )}
+                      </div>
                     </TabsContent>
-                    
-                    <TabsContent value="raw" className="mt-2">
-                      <textarea 
-                        className="w-full h-[400px] p-4 rounded-md border border-border bg-muted/50 font-mono text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-                        readOnly
-                        value={result.markdown || result.html || JSON.stringify(result.json, null, 2)}
+
+                    <TabsContent value="html" className="mt-2">
+                      <div
+                        className="p-4 rounded-md border border-border bg-card min-h-[400px] max-h-[700px] overflow-y-auto prose prose-sm dark:prose-invert max-w-none [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-border [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:p-2"
+                        dangerouslySetInnerHTML={{ __html: blockHtml || result.html || "" }}
                       />
                     </TabsContent>
 
+                    <TabsContent value="json" className="mt-2">
+                      <pre className="p-4 rounded-md border border-border bg-muted/50 font-mono text-xs overflow-auto max-h-[700px]">
+{JSON.stringify(result.json ?? result, null, 2)}
+                      </pre>
+                    </TabsContent>
+
                     <TabsContent value="structured" className="mt-2">
-                      <div className="p-4 rounded-md border border-border bg-muted/50 max-h-[400px] overflow-y-auto">
+                      <div className="p-4 rounded-md border border-border bg-muted/50 max-h-[700px] overflow-y-auto">
                         <pre className="font-mono text-sm">{JSON.stringify(result.extraction_schema_json, null, 2)}</pre>
                       </div>
                     </TabsContent>
@@ -274,20 +303,6 @@ export default function Home() {
                       <SelectItem value="fast">Fast (Lower accuracy)</SelectItem>
                       <SelectItem value="balanced">Balanced (Recommended)</SelectItem>
                       <SelectItem value="accurate">Accurate (Slower, best results)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-3">
-                  <Label>Output Format</Label>
-                  <Select value={outputFormat} onValueChange={(v: any) => setOutputFormat(v)} disabled={status === "processing" || status === "uploading"}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="markdown">Markdown</SelectItem>
-                      <SelectItem value="html">HTML</SelectItem>
-                      <SelectItem value="json">JSON</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

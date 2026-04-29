@@ -86,7 +86,11 @@ router.post(
       form.append("output_format", outputFormat);
       form.append("page_schema", pageSchema as string);
     } else {
-      form.append("output_format", outputFormat);
+      // Always request the full block tree from marker — it contains
+      // block_type labels (Text / Table / SectionHeader / ListItem / Figure / ...)
+      // plus pre-rendered HTML for each block, which the UI uses to render the
+      // playground-style "Blocks" view as well as the HTML / JSON tabs.
+      form.append("output_format", "json");
       // Higher-quality modes turn on Datalab's LLM-assisted pass.
       if (mode === "accurate") {
         form.append("use_llm", "true");

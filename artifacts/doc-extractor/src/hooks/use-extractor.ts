@@ -83,8 +83,11 @@ export function useExtractor() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("mode", mode);
+    // The server forces output_format=json on the marker (block) path so the
+    // UI always has the block tree to render. For the structured-extract path,
+    // output_format controls the shape of the per-field result.
     formData.append("output_format", outputFormat);
-    
+
     if (useSchema && schemaFields.length > 0) {
       const schemaObj = schemaFields.reduce((acc, field) => {
         if (field.key) {
