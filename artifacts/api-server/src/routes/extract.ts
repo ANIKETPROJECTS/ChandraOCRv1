@@ -13,6 +13,14 @@ const upload = multer({
   limits: { fileSize: MAX_FILE_BYTES },
 });
 
+type Endpoint = "extract" | "marker";
+
+interface SubmitMeta {
+  endpoint: Endpoint;
+}
+
+const submissions = new Map<string, SubmitMeta>();
+
 function getApiKey(): string | null {
   const key = process.env["DATALAB_API_KEY"];
   return key && key.length > 0 ? key : null;
@@ -62,23 +70,38 @@ router.post(
       }
     }
 
+    // Datalab has two pipelines:
+    // - /api/v1/extract  — structured extraction (requires page_schema)
+    // - /api/v1/marker   — document-to-markdown/html/json conversion
+    const endpoint: Endpoint = pageSchema ? "extract" : "marker";
+
     const form = new FormData();
     const blob = new Blob([new Uint8Array(file.buffer)], {
       type: file.mimetype || "application/octet-stream",
     });
     form.append("file", blob, file.originalname);
-    form.append("mode", mode);
-    form.append("output_format", outputFormat);
-    if (pageSchema) {
-      form.append("page_schema", pageSchema);
+
+    if (endpoint === "extract") {
+      form.append("mode", mode);
+      form.append("output_format", outputFormat);
+      form.append("page_schema", pageSchema as string);
+    } else {
+      form.append("output_format", outputFormat);
+      // Higher-quality modes turn on Datalab's LLM-assisted pass.
+      if (mode === "accurate") {
+        form.append("use_llm", "true");
+      }
     }
 
     try {
-      const upstream = await fetch(`${DATALAB_BASE_URL}/api/v1/extract`, {
-        method: "POST",
-        headers: { "X-API-Key": apiKey },
-        body: form,
-      });
+      const upstream = await fetch(
+        `${DATALAB_BASE_URL}/api/v1/${endpoint}`,
+        {
+          method: "POST",
+          headers: { "X-API-Key": apiKey },
+          body: form,
+        },
+      );
 
       const data = (await upstream.json().catch(() => null)) as
         | Record<string, unknown>
@@ -86,11 +109,14 @@ router.post(
 
       if (!upstream.ok || !data) {
         const message =
-          (data && typeof data["error"] === "string"
-            ? (data["error"] as string)
-            : null) ?? `Datalab returned HTTP ${upstream.status}`;
+          (data &&
+            (typeof data["error"] === "string"
+              ? (data["error"] as string)
+              : typeof data["detail"] === "string"
+                ? (data["detail"] as string)
+                : null)) ?? `Datalab returned HTTP ${upstream.status}`;
         req.log.warn(
-          { status: upstream.status, body: data },
+          { status: upstream.status, body: data, endpoint },
           "Datalab submit failed",
         );
         res.status(upstream.status >= 400 ? upstream.status : 502).json({
@@ -108,7 +134,9 @@ router.post(
         return;
       }
 
-      res.json({ request_id: requestId });
+      submissions.set(requestId, { endpoint });
+
+      res.json({ request_id: requestId, endpoint });
     } catch (err) {
       req.log.error({ err }, "Failed to submit document to Datalab");
       res.status(502).json({ error: "Failed to reach Datalab" });
@@ -136,9 +164,13 @@ router.get("/extract/:requestId", async (req, res): Promise<void> => {
     return;
   }
 
+  const meta = submissions.get(requestId);
+  // Default to marker so direct/poll-by-id calls without prior submission still work.
+  const endpoint: Endpoint = meta?.endpoint ?? "marker";
+
   try {
     const upstream = await fetch(
-      `${DATALAB_BASE_URL}/api/v1/extract/${encodeURIComponent(requestId)}`,
+      `${DATALAB_BASE_URL}/api/v1/${endpoint}/${encodeURIComponent(requestId)}`,
       { headers: { "X-API-Key": apiKey } },
     );
 
@@ -148,11 +180,14 @@ router.get("/extract/:requestId", async (req, res): Promise<void> => {
 
     if (!upstream.ok || !data) {
       const message =
-        (data && typeof data["error"] === "string"
-          ? (data["error"] as string)
-          : null) ?? `Datalab returned HTTP ${upstream.status}`;
+        (data &&
+          (typeof data["error"] === "string"
+            ? (data["error"] as string)
+            : typeof data["detail"] === "string"
+              ? (data["detail"] as string)
+              : null)) ?? `Datalab returned HTTP ${upstream.status}`;
       req.log.warn(
-        { status: upstream.status, body: data },
+        { status: upstream.status, body: data, endpoint },
         "Datalab poll failed",
       );
       res.status(upstream.status >= 400 ? upstream.status : 502).json({
