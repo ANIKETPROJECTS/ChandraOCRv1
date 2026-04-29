@@ -1,425 +1,146 @@
-import { useCallback, useRef, useMemo } from "react";
-import { UploadCloud, FileText, CheckCircle, AlertCircle, X, Download, Copy, Plus, Clock, Settings2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useToast } from "@/hooks/use-toast";
-import { useExtractor, useRecentExtractions } from "@/hooks/use-extractor";
-import { BlocksView, blocksToHtml } from "@/components/blocks-view";
+import { Link } from "wouter";
+import { FileText, ScrollText, IdCard, BookOpen, Clock, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useRecentExtractions } from "@/hooks/use-extractor";
+import type { DocumentTypeId } from "@/lib/types";
+
+interface DocCard {
+  id: DocumentTypeId;
+  title: string;
+  subtitle: string;
+  description: string;
+  icon: typeof FileText;
+  accent: string;
+}
+
+const DOCS: DocCard[] = [
+  {
+    id: "form7",
+    title: "Form 7",
+    subtitle: "Maharashtra 7/12 — Ownership Register",
+    description:
+      "Extract owner details, area, assessment, encumbrances, and mutation entries from the Satbara Form 7 (अधिकार अभिलेख).",
+    icon: ScrollText,
+    accent: "text-amber-700 bg-amber-50 border-amber-200",
+  },
+  {
+    id: "form12",
+    title: "Form 12",
+    subtitle: "Maharashtra 7/12 — Crop Inspection Register",
+    description:
+      "Extract every crop inspection row — year, season, crop, irrigation, and area — from the Satbara Form 12 (पीक पाहणी).",
+    icon: FileText,
+    accent: "text-emerald-700 bg-emerald-50 border-emerald-200",
+  },
+  {
+    id: "aadhar",
+    title: "Aadhaar Card",
+    subtitle: "UIDAI Identity Card",
+    description:
+      "Extract name, gender, date of birth, Aadhaar number, address, VID, and other printed details.",
+    icon: IdCard,
+    accent: "text-sky-700 bg-sky-50 border-sky-200",
+  },
+  {
+    id: "bank_passbook",
+    title: "Bank Passbook",
+    subtitle: "Account & Branch Details",
+    description:
+      "Extract bank, branch, IFSC, account number, holder details, nominee, and any printed transactions.",
+    icon: BookOpen,
+    accent: "text-violet-700 bg-violet-50 border-violet-200",
+  },
+];
 
 export default function Home() {
-  const { toast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  const {
-    file, setFile,
-    mode, setMode,
-    useSchema, setUseSchema,
-    schemaFields, setSchemaFields,
-    status, result, error, elapsedTime,
-    extract, loadResult, setStatus
-  } = useExtractor();
-
-  const recentExtractions = useRecentExtractions();
-
-  const blockHtml = useMemo(
-    () => (result?.json ? blocksToHtml(result.json, result.images) : ""),
-    [result?.json, result?.images],
-  );
-
-  const downloadable = useMemo(() => {
-    if (!result) return { content: "", filename: "extraction.txt", type: "text/plain" };
-    if (result.json) {
-      return {
-        content: JSON.stringify(result.json, null, 2),
-        filename: "extraction.json",
-        type: "application/json",
-      };
-    }
-    if (result.markdown) {
-      return { content: result.markdown, filename: "extraction.md", type: "text/markdown" };
-    }
-    if (result.html) {
-      return { content: result.html, filename: "extraction.html", type: "text/html" };
-    }
-    return { content: "", filename: "extraction.txt", type: "text/plain" };
-  }, [result]);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (status !== "idle" && status !== "error" && status !== "complete") return;
-    
-    const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile) {
-      setFile(droppedFile);
-      setStatus("idle");
-    }
-  }, [setFile, setStatus, status]);
-
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setStatus("idle");
-    }
-  }, [setFile, setStatus]);
-
-  const removeFile = () => {
-    setFile(null);
-    setStatus("idle");
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const addSchemaField = () => {
-    setSchemaFields([...schemaFields, { id: Math.random().toString(), key: "", type: "string", description: "" }]);
-  };
-
-  const updateSchemaField = (id: string, field: string, value: string) => {
-    setSchemaFields(schemaFields.map(f => f.id === id ? { ...f, [field]: value } : f));
-  };
-
-  const removeSchemaField = (id: string) => {
-    setSchemaFields(schemaFields.filter(f => f.id !== id));
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast({
-      title: "Copied to clipboard",
-      description: "Content has been copied to your clipboard.",
-    });
-  };
-
-  const downloadFile = (content: string, filename: string, type: string) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
+  const recent = useRecentExtractions();
 
   return (
-    <div className="min-h-screen bg-background text-foreground py-12 px-4 sm:px-6 lg:px-8 font-sans selection:bg-primary/20">
-      <div className="max-w-5xl mx-auto space-y-8">
-        
-        <header className="space-y-2">
-          <h1 className="text-4xl font-serif font-semibold tracking-tight text-primary">Document Extractor</h1>
-          <p className="text-muted-foreground text-lg max-w-2xl">A focused workspace for turning messy documents into clean, structured data. Upload a file to begin extraction.</p>
+    <div className="min-h-screen bg-background text-foreground py-12 px-4 sm:px-6 lg:px-8 font-sans">
+      <div className="max-w-6xl mx-auto space-y-10">
+        <header className="space-y-3">
+          <h1 className="text-4xl font-serif font-semibold tracking-tight text-primary">
+            Document Extractor
+          </h1>
+          <p className="text-muted-foreground text-lg max-w-3xl">
+            Pick a document type to upload. We extract the printed fields on the
+            server and show them in a clean parameter / value layout — no manual
+            cleanup required.
+          </p>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          <div className="lg:col-span-2 space-y-6">
-            <Card className="border-border shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-xl">Upload Document</CardTitle>
-                <CardDescription>Accepts PDF, DOCX, PPTX, PNG, JPG, WEBP</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div 
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                  onClick={() => status !== "processing" && status !== "uploading" && fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-lg p-10 text-center transition-colors cursor-pointer
-                    ${(status === "processing" || status === "uploading") ? "opacity-50 cursor-not-allowed" : "hover:bg-secondary/50 hover:border-primary/50"}
-                    ${file ? "border-primary/50 bg-secondary/20" : "border-border"}
-                  `}
-                >
-                  <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    onChange={handleFileChange} 
-                    className="hidden" 
-                    accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.webp" 
-                  />
-                  
-                  {file ? (
-                    <div className="flex flex-col items-center space-y-4">
-                      <FileText className="h-12 w-12 text-primary" />
-                      <div>
-                        <p className="font-medium text-lg">{file.name}</p>
-                        <p className="text-sm text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+        <section>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-5">
+            {DOCS.map((doc) => {
+              const Icon = doc.icon;
+              return (
+                <Link key={doc.id} href={`/extract/${doc.id}`}>
+                  <Card
+                    className="cursor-pointer border-border shadow-sm hover:shadow-md hover:border-primary/40 transition-all h-full"
+                    data-testid={`card-doc-${doc.id}`}
+                  >
+                    <CardHeader>
+                      <div className="flex items-start gap-4">
+                        <div
+                          className={`shrink-0 w-12 h-12 rounded-lg border flex items-center justify-center ${doc.accent}`}
+                        >
+                          <Icon className="w-6 h-6" />
+                        </div>
+                        <div className="space-y-1">
+                          <CardTitle className="text-xl">{doc.title}</CardTitle>
+                          <CardDescription className="text-sm">
+                            {doc.subtitle}
+                          </CardDescription>
+                        </div>
                       </div>
-                      {(status === "idle" || status === "error") && (
-                        <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); removeFile(); }}>
-                          Remove File
-                        </Button>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">
+                        {doc.description}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+
+        {recent.length > 0 && (
+          <section className="space-y-3">
+            <div className="flex items-center gap-2 text-foreground">
+              <Clock className="w-5 h-5" />
+              <h2 className="text-xl font-semibold">Recent Extractions</h2>
+            </div>
+            <Card className="border-border">
+              <CardContent className="p-0 divide-y divide-border">
+                {recent.map((item) => (
+                  <div
+                    key={item.id}
+                    className="px-4 py-3 flex items-center justify-between gap-4"
+                    data-testid={`recent-${item.id}`}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{item.filename}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.documentLabel} · {new Date(item.timestamp).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="shrink-0">
+                      {item.status === "complete" ? (
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                      ) : item.status === "error" ? (
+                        <AlertCircle className="w-5 h-5 text-destructive" />
+                      ) : (
+                        <Loader2 className="w-5 h-5 text-primary animate-spin" />
                       )}
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center space-y-4">
-                      <UploadCloud className="h-12 w-12 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium text-lg">Click to upload or drag and drop</p>
-                        <p className="text-sm text-muted-foreground">Any supported document format up to 50MB</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {status === "error" && (
-                  <div className="mt-4 p-4 rounded-md bg-destructive/10 text-destructive flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-medium">Extraction Failed</h4>
-                      <p className="text-sm opacity-90">{error}</p>
-                    </div>
                   </div>
-                )}
-
-                {(status === "uploading" || status === "processing") && (
-                  <div className="mt-6 space-y-4 p-6 rounded-lg bg-secondary/30 border border-border">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-3">
-                        <div className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                        <span className="font-medium">
-                          {status === "uploading" ? "Uploading document..." : "Processing document..."}
-                        </span>
-                      </div>
-                      <span className="text-muted-foreground text-sm font-mono">{elapsedTime}s</span>
-                    </div>
-                    <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
-                      <div className="h-full bg-primary transition-all duration-500 ease-in-out w-full animate-pulse" />
-                    </div>
-                  </div>
-                )}
+                ))}
               </CardContent>
             </Card>
-
-            {status === "complete" && result && (
-              <Card className="border-border shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <div>
-                    <CardTitle className="text-xl flex items-center gap-2">
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                      Extraction Complete
-                    </CardTitle>
-                    <CardDescription>Processed in {result.runtime?.toFixed(1) || elapsedTime} seconds</CardDescription>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(downloadable.content)}>
-                      <Copy className="w-4 h-4 mr-2" /> Copy
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => downloadFile(downloadable.content, downloadable.filename, downloadable.type)}>
-                      <Download className="w-4 h-4 mr-2" /> Download
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <Tabs defaultValue="blocks" className="w-full mt-4">
-                    <TabsList className="grid w-full grid-cols-5">
-                      <TabsTrigger value="blocks">Blocks</TabsTrigger>
-                      <TabsTrigger value="html">HTML</TabsTrigger>
-                      <TabsTrigger value="json">JSON</TabsTrigger>
-                      <TabsTrigger value="structured" disabled={!result.extraction_schema_json}>Structured Data</TabsTrigger>
-                      <TabsTrigger value="meta">Metadata</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="blocks" className="mt-2">
-                      <div className="p-4 rounded-md border border-border bg-secondary/20 min-h-[400px] max-h-[700px] overflow-y-auto">
-                        {result.json ? (
-                          <BlocksView root={result.json} images={result.images} />
-                        ) : result.markdown ? (
-                          <pre className="whitespace-pre-wrap font-sans text-sm">{result.markdown}</pre>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">No block data available.</p>
-                        )}
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="html" className="mt-2">
-                      <div
-                        className="p-4 rounded-md border border-border bg-card min-h-[400px] max-h-[700px] overflow-y-auto prose prose-sm dark:prose-invert max-w-none [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-border [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:p-2"
-                        dangerouslySetInnerHTML={{ __html: blockHtml || result.html || "" }}
-                      />
-                    </TabsContent>
-
-                    <TabsContent value="json" className="mt-2">
-                      <pre className="p-4 rounded-md border border-border bg-muted/50 font-mono text-xs overflow-auto max-h-[700px]">
-{JSON.stringify(result.json ?? result, null, 2)}
-                      </pre>
-                    </TabsContent>
-
-                    <TabsContent value="structured" className="mt-2">
-                      <div className="p-4 rounded-md border border-border bg-muted/50 max-h-[700px] overflow-y-auto">
-                        <pre className="font-mono text-sm">{JSON.stringify(result.extraction_schema_json, null, 2)}</pre>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="meta" className="mt-2">
-                      <div className="space-y-4 p-4 rounded-md border border-border bg-card">
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <span className="text-muted-foreground block mb-1">Status</span>
-                            <span className="font-medium capitalize">{result.status}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground block mb-1">Page Count</span>
-                            <span className="font-medium">{result.page_count || "Unknown"}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground block mb-1">Processing Time</span>
-                            <span className="font-medium">{result.runtime ? `${result.runtime.toFixed(2)}s` : "Unknown"}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </TabsContent>
-                  </Tabs>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          <div className="space-y-6">
-            <Card className="border-border shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Settings2 className="w-5 h-5" />
-                  Extraction Settings
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                
-                <div className="space-y-3">
-                  <Label>Processing Mode</Label>
-                  <Select value={mode} onValueChange={(v: any) => setMode(v)} disabled={status === "processing" || status === "uploading"}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="fast">Fast (Lower accuracy)</SelectItem>
-                      <SelectItem value="balanced">Balanced (Recommended)</SelectItem>
-                      <SelectItem value="accurate">Accurate (Slower, best results)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-4 pt-4 border-t border-border">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Structured Fields</Label>
-                      <p className="text-xs text-muted-foreground">Extract specific data points</p>
-                    </div>
-                    <Switch checked={useSchema} onCheckedChange={setUseSchema} disabled={status === "processing" || status === "uploading"} />
-                  </div>
-
-                  {useSchema && (
-                    <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
-                      {schemaFields.map((field, index) => (
-                        <div key={field.id} className="p-3 bg-secondary/30 rounded-md border border-border relative group">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="absolute -right-2 -top-2 w-6 h-6 rounded-full bg-background border border-border opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={() => removeSchemaField(field.id)}
-                            disabled={status === "processing" || status === "uploading"}
-                          >
-                            <X className="w-3 h-3 text-destructive" />
-                          </Button>
-                          <div className="grid grid-cols-2 gap-2 mb-2">
-                            <Input 
-                              placeholder="Key (e.g. invoice_total)" 
-                              value={field.key} 
-                              onChange={(e) => updateSchemaField(field.id, "key", e.target.value)}
-                              className="h-8 text-sm"
-                              disabled={status === "processing" || status === "uploading"}
-                            />
-                            <Select value={field.type} onValueChange={(v) => updateSchemaField(field.id, "type", v)} disabled={status === "processing" || status === "uploading"}>
-                              <SelectTrigger className="h-8 text-sm">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="string">String</SelectItem>
-                                <SelectItem value="number">Number</SelectItem>
-                                <SelectItem value="boolean">Boolean</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <Input 
-                            placeholder="Description to help AI extract this field" 
-                            value={field.description} 
-                            onChange={(e) => updateSchemaField(field.id, "description", e.target.value)}
-                            className="h-8 text-sm"
-                            disabled={status === "processing" || status === "uploading"}
-                          />
-                        </div>
-                      ))}
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="w-full text-xs border-dashed" 
-                        onClick={addSchemaField}
-                        disabled={status === "processing" || status === "uploading"}
-                      >
-                        <Plus className="w-3 h-3 mr-1" /> Add Field
-                      </Button>
-                    </div>
-                  )}
-                </div>
-
-                <Button 
-                  className="w-full mt-4" 
-                  size="lg" 
-                  onClick={extract}
-                  disabled={!file || status === "processing" || status === "uploading"}
-                >
-                  {status === "processing" || status === "uploading" ? "Processing..." : "Extract Document"}
-                </Button>
-              </CardContent>
-            </Card>
-
-            {recentExtractions.length > 0 && (
-              <Card className="border-border shadow-sm">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Clock className="w-5 h-5" />
-                    Recent Extractions
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {recentExtractions.map((item) => (
-                      <div 
-                        key={item.id} 
-                        onClick={() => status !== "processing" && status !== "uploading" && loadResult(item.id)}
-                        className={`p-3 rounded-md border flex items-center justify-between cursor-pointer transition-colors
-                          ${status === "processing" || status === "uploading" ? "opacity-50 cursor-not-allowed" : "hover:bg-secondary/50"}
-                          ${result?.status === "complete" && item.status === "complete" ? "border-border" : "border-border"}
-                        `}
-                      >
-                        <div className="overflow-hidden">
-                          <p className="text-sm font-medium truncate">{item.filename}</p>
-                          <p className="text-xs text-muted-foreground">{new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString()}</p>
-                        </div>
-                        {item.status === "complete" ? (
-                          <CheckCircle className="w-4 h-4 text-green-600 shrink-0 ml-2" />
-                        ) : item.status === "error" ? (
-                          <AlertCircle className="w-4 h-4 text-destructive shrink-0 ml-2" />
-                        ) : (
-                          <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0 ml-2" />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-        </div>
+          </section>
+        )}
       </div>
     </div>
   );
