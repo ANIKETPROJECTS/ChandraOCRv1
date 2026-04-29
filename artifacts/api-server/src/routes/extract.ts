@@ -54,20 +54,37 @@ router.post(
       ? rawFormat
       : "markdown";
 
-    const pageSchema =
+    const rawPageSchema =
       typeof req.body?.page_schema === "string" && req.body.page_schema.trim()
         ? req.body.page_schema
         : null;
 
-    if (pageSchema) {
+    let pageSchema: string | null = null;
+    if (rawPageSchema) {
+      let parsed: unknown;
       try {
-        JSON.parse(pageSchema);
+        parsed = JSON.parse(rawPageSchema);
       } catch {
         res
           .status(400)
           .json({ error: "page_schema must be a valid JSON string" });
         return;
       }
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        res.status(400).json({ error: "page_schema must be a JSON object" });
+        return;
+      }
+      const obj = parsed as Record<string, unknown>;
+      // Datalab requires a JSON-Schema-ish object with a `properties` key. If
+      // the client sent a flat { fieldName: { type, description } } map, wrap
+      // it for them.
+      const wrapped =
+        "properties" in obj &&
+        typeof obj["properties"] === "object" &&
+        obj["properties"] !== null
+          ? obj
+          : { type: "object", properties: obj };
+      pageSchema = JSON.stringify(wrapped);
     }
 
     // Datalab has two pipelines:
