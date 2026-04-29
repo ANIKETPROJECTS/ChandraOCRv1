@@ -27,7 +27,35 @@ export interface PresentedSection {
   tables: PresentedTable[];
 }
 
+export interface MarkerBlock {
+  id?: string;
+  block_type?: string;
+  html?: string;
+  polygon?: number[][];
+  bbox?: number[];
+  section_hierarchy?: Record<string, string>;
+  images?: Record<string, string> | null;
+  children?: MarkerBlock[] | null;
+}
+
+export interface MarkerResult {
+  json?: MarkerBlock | Record<string, unknown> | null;
+  html?: string | null;
+  markdown?: string | null;
+  images?: Record<string, string> | null;
+}
+
+export interface StructuredResult {
+  sections: PresentedSection[];
+  empty: boolean;
+}
+
 export type ExtractionStatus = "idle" | "uploading" | "processing" | "complete" | "error";
+
+export interface ExtractionErrors {
+  extract?: string;
+  marker?: string;
+}
 
 export interface ExtractionResult {
   status: "complete" | "processing" | "error";
@@ -35,8 +63,9 @@ export interface ExtractionResult {
   document_label: string;
   page_count?: number | null;
   runtime?: number | null;
-  sections?: PresentedSection[];
-  empty?: boolean;
+  structured?: StructuredResult | null;
+  marker?: MarkerResult | null;
+  errors?: ExtractionErrors;
   error?: string;
 }
 

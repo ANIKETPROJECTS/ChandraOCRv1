@@ -68,12 +68,10 @@ export function useTypedExtractor(documentType: DocumentTypeId, documentLabel: s
       }
 
       try {
-        const response = await fetch(
-          apiUrl(`/api/extract/${id}?document_type=${encodeURIComponent(documentType)}`),
-        );
-        const data = (await response.json().catch(() => null)) as ExtractionResult & {
-          error?: string;
-        } | null;
+        const response = await fetch(apiUrl(`/api/extract/${id}`));
+        const data = (await response.json().catch(() => null)) as
+          | (ExtractionResult & { error?: string })
+          | null;
 
         if (!response.ok || !data) {
           throw new Error(data?.error || `Server returned HTTP ${response.status}`);

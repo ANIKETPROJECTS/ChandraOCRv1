@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
 import multer from "multer";
 import {
@@ -5,6 +6,7 @@ import {
   buildPageSchema,
   getDocumentType,
   presentExtraction,
+  type DocumentTypeDef,
   type PresentedDocument,
 } from "../lib/document-types";
 
@@ -20,15 +22,141 @@ const upload = multer({
   limits: { fileSize: MAX_FILE_BYTES },
 });
 
-interface SubmitMeta {
+interface JobMeta {
   documentTypeId: string;
+  extractRequestId: string | null;
+  markerRequestId: string | null;
+  createdAt: number;
 }
 
-const submissions = new Map<string, SubmitMeta>();
+const jobs = new Map<string, JobMeta>();
+
+// 30 minute TTL on the in-memory job map.
+const JOB_TTL_MS = 30 * 60 * 1000;
+function gcJobs() {
+  const cutoff = Date.now() - JOB_TTL_MS;
+  for (const [id, meta] of jobs) {
+    if (meta.createdAt < cutoff) jobs.delete(id);
+  }
+}
 
 function getApiKey(): string | null {
   const key = process.env["DATALAB_API_KEY"];
   return key && key.length > 0 ? key : null;
+}
+
+function describeUpstreamError(
+  status: number,
+  data: Record<string, unknown> | null,
+): string {
+  if (data) {
+    if (typeof data["error"] === "string") return data["error"] as string;
+    if (typeof data["detail"] === "string") return data["detail"] as string;
+  }
+  return `Datalab returned HTTP ${status}`;
+}
+
+async function submitExtract(
+  apiKey: string,
+  file: Express.Multer.File,
+  def: DocumentTypeDef,
+  mode: string,
+): Promise<{ requestId: string | null; error: string | null }> {
+  const form = new FormData();
+  const blob = new Blob([new Uint8Array(file.buffer)], {
+    type: file.mimetype || "application/octet-stream",
+  });
+  form.append("file", blob, file.originalname);
+  form.append("mode", mode);
+  form.append("output_format", "json");
+  form.append("page_schema", JSON.stringify(buildPageSchema(def)));
+
+  try {
+    const upstream = await fetch(`${DATALAB_BASE_URL}/api/v1/extract`, {
+      method: "POST",
+      headers: { "X-API-Key": apiKey },
+      body: form,
+    });
+    const data = (await upstream.json().catch(() => null)) as
+      | Record<string, unknown>
+      | null;
+    if (!upstream.ok || !data) {
+      return { requestId: null, error: describeUpstreamError(upstream.status, data) };
+    }
+    const id = data["request_id"];
+    if (typeof id !== "string" || id.length === 0) {
+      return { requestId: null, error: "Datalab did not return a request_id" };
+    }
+    return { requestId: id, error: null };
+  } catch (err) {
+    return {
+      requestId: null,
+      error: err instanceof Error ? err.message : "Failed to reach Datalab",
+    };
+  }
+}
+
+async function submitMarker(
+  apiKey: string,
+  file: Express.Multer.File,
+  mode: string,
+): Promise<{ requestId: string | null; error: string | null }> {
+  const form = new FormData();
+  const blob = new Blob([new Uint8Array(file.buffer)], {
+    type: file.mimetype || "application/octet-stream",
+  });
+  form.append("file", blob, file.originalname);
+  form.append("output_format", "json");
+  if (mode === "accurate") form.append("use_llm", "true");
+
+  try {
+    const upstream = await fetch(`${DATALAB_BASE_URL}/api/v1/marker`, {
+      method: "POST",
+      headers: { "X-API-Key": apiKey },
+      body: form,
+    });
+    const data = (await upstream.json().catch(() => null)) as
+      | Record<string, unknown>
+      | null;
+    if (!upstream.ok || !data) {
+      return { requestId: null, error: describeUpstreamError(upstream.status, data) };
+    }
+    const id = data["request_id"];
+    if (typeof id !== "string" || id.length === 0) {
+      return { requestId: null, error: "Datalab did not return a request_id" };
+    }
+    return { requestId: id, error: null };
+  } catch (err) {
+    return {
+      requestId: null,
+      error: err instanceof Error ? err.message : "Failed to reach Datalab",
+    };
+  }
+}
+
+async function pollUpstream(
+  apiKey: string,
+  endpoint: "extract" | "marker",
+  requestId: string,
+): Promise<{ data: Record<string, unknown> | null; error: string | null }> {
+  try {
+    const upstream = await fetch(
+      `${DATALAB_BASE_URL}/api/v1/${endpoint}/${encodeURIComponent(requestId)}`,
+      { headers: { "X-API-Key": apiKey } },
+    );
+    const data = (await upstream.json().catch(() => null)) as
+      | Record<string, unknown>
+      | null;
+    if (!upstream.ok || !data) {
+      return { data: null, error: describeUpstreamError(upstream.status, data) };
+    }
+    return { data, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err.message : "Failed to reach Datalab",
+    };
+  }
 }
 
 router.get("/document-types", (_req, res) => {
@@ -76,78 +204,49 @@ router.post(
       typeof req.body?.mode === "string" ? req.body.mode : DEFAULT_MODE;
     const mode = ALLOWED_MODES.has(rawMode) ? rawMode : DEFAULT_MODE;
 
-    const pageSchema = buildPageSchema(docDef);
+    // Fan out to both pipelines so the user gets structured fields AND the
+    // original Datalab block / HTML / JSON view from a single upload.
+    const [extractResult, markerResult] = await Promise.all([
+      submitExtract(apiKey, file, docDef, mode),
+      submitMarker(apiKey, file, mode),
+    ]);
 
-    const form = new FormData();
-    const blob = new Blob([new Uint8Array(file.buffer)], {
-      type: file.mimetype || "application/octet-stream",
-    });
-    form.append("file", blob, file.originalname);
-    form.append("mode", mode);
-    form.append("output_format", "json");
-    form.append("page_schema", JSON.stringify(pageSchema));
-
-    try {
-      const upstream = await fetch(`${DATALAB_BASE_URL}/api/v1/extract`, {
-        method: "POST",
-        headers: { "X-API-Key": apiKey },
-        body: form,
-      });
-
-      const data = (await upstream.json().catch(() => null)) as
-        | Record<string, unknown>
-        | null;
-
-      if (!upstream.ok || !data) {
-        const message =
-          (data &&
-            (typeof data["error"] === "string"
-              ? (data["error"] as string)
-              : typeof data["detail"] === "string"
-                ? (data["detail"] as string)
-                : null)) ?? `Datalab returned HTTP ${upstream.status}`;
-        req.log.warn(
-          { status: upstream.status, body: data, documentType: docDef.id },
-          "Datalab submit failed",
-        );
-        res.status(upstream.status >= 400 ? upstream.status : 502).json({
-          error: message,
-        });
-        return;
-      }
-
-      const requestId = data["request_id"];
-      if (typeof requestId !== "string" || requestId.length === 0) {
-        req.log.error({ data }, "Datalab response missing request_id");
-        res
-          .status(502)
-          .json({ error: "Datalab response did not include a request_id" });
-        return;
-      }
-
-      submissions.set(requestId, { documentTypeId: docDef.id });
-
-      res.json({
-        request_id: requestId,
-        document_type: docDef.id,
-        document_label: docDef.label,
-        mode,
-      });
-    } catch (err) {
-      req.log.error({ err }, "Failed to submit document to Datalab");
-      res.status(502).json({ error: "Failed to reach Datalab" });
+    if (!extractResult.requestId && !markerResult.requestId) {
+      const message =
+        extractResult.error ?? markerResult.error ?? "Datalab submission failed";
+      req.log.warn(
+        { extract: extractResult.error, marker: markerResult.error },
+        "Both Datalab submissions failed",
+      );
+      res.status(502).json({ error: message });
+      return;
     }
+
+    gcJobs();
+    const jobId = randomUUID().replace(/-/g, "");
+    jobs.set(jobId, {
+      documentTypeId: docDef.id,
+      extractRequestId: extractResult.requestId,
+      markerRequestId: markerResult.requestId,
+      createdAt: Date.now(),
+    });
+
+    res.json({
+      request_id: jobId,
+      document_type: docDef.id,
+      document_label: docDef.label,
+      mode,
+      pipelines: {
+        extract: extractResult.requestId
+          ? { status: "submitted" }
+          : { status: "error", error: extractResult.error },
+        marker: markerResult.requestId
+          ? { status: "submitted" }
+          : { status: "error", error: markerResult.error },
+      },
+    });
   },
 );
-
-interface UpstreamPoll {
-  status?: string;
-  error?: string;
-  page_count?: number;
-  runtime?: number;
-  extraction_schema_json?: unknown;
-  [k: string]: unknown;
-}
 
 router.get("/extract/:requestId", async (req, res): Promise<void> => {
   const apiKey = getApiKey();
@@ -159,7 +258,6 @@ router.get("/extract/:requestId", async (req, res): Promise<void> => {
 
   const rawId = req.params.requestId;
   const requestId = Array.isArray(rawId) ? rawId[0] : rawId;
-
   if (
     typeof requestId !== "string" ||
     requestId.length === 0 ||
@@ -169,87 +267,156 @@ router.get("/extract/:requestId", async (req, res): Promise<void> => {
     return;
   }
 
-  const rawType =
-    typeof req.query?.document_type === "string"
-      ? (req.query.document_type as string)
-      : "";
-  const meta = submissions.get(requestId);
-  const documentTypeId = rawType || meta?.documentTypeId;
-  const docDef = documentTypeId ? getDocumentType(documentTypeId) : null;
-
-  if (!docDef) {
-    res.status(400).json({
+  const meta = jobs.get(requestId);
+  if (!meta) {
+    res.status(404).json({
       error:
-        "Unknown document type for this request. Pass ?document_type=<id> or resubmit.",
+        "Unknown extraction job. Please re-upload the document — server jobs expire after 30 minutes or are lost on restart.",
     });
     return;
   }
+  const docDef = getDocumentType(meta.documentTypeId);
+  if (!docDef) {
+    res.status(500).json({ error: "Job has an unknown document type." });
+    return;
+  }
 
-  try {
-    const upstream = await fetch(
-      `${DATALAB_BASE_URL}/api/v1/extract/${encodeURIComponent(requestId)}`,
-      { headers: { "X-API-Key": apiKey } },
-    );
+  // Fan out polling to both upstream pipelines in parallel.
+  const [extractPoll, markerPoll] = await Promise.all([
+    meta.extractRequestId
+      ? pollUpstream(apiKey, "extract", meta.extractRequestId)
+      : Promise.resolve({ data: null, error: "Pipeline was not started." }),
+    meta.markerRequestId
+      ? pollUpstream(apiKey, "marker", meta.markerRequestId)
+      : Promise.resolve({ data: null, error: "Pipeline was not started." }),
+  ]);
 
-    const data = (await upstream.json().catch(() => null)) as UpstreamPoll | null;
-
-    if (!upstream.ok || !data) {
-      const message =
-        (data &&
-          (typeof data.error === "string"
-            ? data.error
-            : typeof data["detail"] === "string"
-              ? (data["detail"] as string)
-              : null)) ?? `Datalab returned HTTP ${upstream.status}`;
-      req.log.warn(
-        { status: upstream.status, body: data, documentType: docDef.id },
-        "Datalab poll failed",
-      );
-      res.status(upstream.status >= 400 ? upstream.status : 502).json({
-        error: message,
-      });
-      return;
+  type PipelineState = "complete" | "processing" | "error";
+  function classify(
+    poll: { data: Record<string, unknown> | null; error: string | null },
+  ): { state: PipelineState; error?: string } {
+    if (poll.error) return { state: "error", error: poll.error };
+    if (!poll.data) return { state: "error", error: "No response from Datalab" };
+    const s = poll.data["status"];
+    if (typeof s === "string") {
+      if (s === "complete") return { state: "complete" };
+      if (s === "error") {
+        const err =
+          typeof poll.data["error"] === "string"
+            ? (poll.data["error"] as string)
+            : "Extraction failed.";
+        return { state: "error", error: err };
+      }
     }
+    return { state: "processing" };
+  }
 
-    const status = typeof data.status === "string" ? data.status : "processing";
+  const extractClass = meta.extractRequestId
+    ? classify(extractPoll)
+    : { state: "error" as const, error: extractPoll.error ?? undefined };
+  const markerClass = meta.markerRequestId
+    ? classify(markerPoll)
+    : { state: "error" as const, error: markerPoll.error ?? undefined };
 
-    if (status === "complete") {
-      const presented: PresentedDocument = presentExtraction(
-        docDef,
-        data.extraction_schema_json,
-      );
-      res.json({
-        status: "complete",
-        document_type: docDef.id,
-        document_label: docDef.label,
-        page_count: data.page_count ?? null,
-        runtime: data.runtime ?? null,
-        sections: presented.sections,
-        empty: presented.empty,
-      });
-      return;
-    }
+  // Overall status — keep the client polling until both pipelines have
+  // settled (either complete or error), then surface a combined result.
+  let overall: PipelineState;
+  if (extractClass.state === "processing" || markerClass.state === "processing") {
+    overall = "processing";
+  } else if (extractClass.state === "error" && markerClass.state === "error") {
+    overall = "error";
+  } else {
+    overall = "complete";
+  }
 
-    if (status === "error") {
-      res.json({
-        status: "error",
-        document_type: docDef.id,
-        document_label: docDef.label,
-        error: typeof data.error === "string" ? data.error : "Extraction failed.",
-      });
-      return;
-    }
-
-    // processing / queued / unknown — keep the client polling.
+  if (overall === "processing") {
     res.json({
       status: "processing",
       document_type: docDef.id,
       document_label: docDef.label,
+      pipelines: {
+        extract: { status: extractClass.state },
+        marker: { status: markerClass.state },
+      },
     });
-  } catch (err) {
-    req.log.error({ err }, "Failed to poll Datalab");
-    res.status(502).json({ error: "Failed to reach Datalab" });
+    return;
   }
+
+  if (overall === "error") {
+    res.json({
+      status: "error",
+      document_type: docDef.id,
+      document_label: docDef.label,
+      error:
+        extractClass.error ?? markerClass.error ?? "Both extractions failed.",
+      errors: {
+        extract: extractClass.error,
+        marker: markerClass.error,
+      },
+    });
+    return;
+  }
+
+  // overall === "complete" — at least one pipeline succeeded.
+  let structured: PresentedDocument | null = null;
+  if (extractClass.state === "complete" && extractPoll.data) {
+    structured = presentExtraction(
+      docDef,
+      extractPoll.data["extraction_schema_json"],
+    );
+  }
+
+  let marker: {
+    json: unknown;
+    html: string | null;
+    markdown: string | null;
+    images: Record<string, string> | null;
+  } | null = null;
+  let pageCount: number | null = null;
+  let runtime: number | null = null;
+
+  if (markerClass.state === "complete" && markerPoll.data) {
+    const m = markerPoll.data;
+    marker = {
+      json: m["json"] ?? null,
+      html: typeof m["html"] === "string" ? (m["html"] as string) : null,
+      markdown: typeof m["markdown"] === "string" ? (m["markdown"] as string) : null,
+      images:
+        m["images"] && typeof m["images"] === "object"
+          ? (m["images"] as Record<string, string>)
+          : null,
+    };
+    if (typeof m["page_count"] === "number") pageCount = m["page_count"] as number;
+    if (typeof m["runtime"] === "number") runtime = m["runtime"] as number;
+  }
+
+  if (extractPoll.data) {
+    if (pageCount === null && typeof extractPoll.data["page_count"] === "number") {
+      pageCount = extractPoll.data["page_count"] as number;
+    }
+    if (runtime === null && typeof extractPoll.data["runtime"] === "number") {
+      runtime = extractPoll.data["runtime"] as number;
+    }
+  }
+
+  res.json({
+    status: "complete",
+    document_type: docDef.id,
+    document_label: docDef.label,
+    page_count: pageCount,
+    runtime,
+    structured: structured
+      ? { sections: structured.sections, empty: structured.empty }
+      : null,
+    marker,
+    errors:
+      extractClass.state === "error" || markerClass.state === "error"
+        ? {
+            extract: extractClass.error,
+            marker: markerClass.error,
+          }
+        : undefined,
+  });
 });
 
 export default router;

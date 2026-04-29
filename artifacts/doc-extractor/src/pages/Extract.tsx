@@ -35,8 +35,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useTypedExtractor } from "@/hooks/use-extractor";
+import { BlocksView, blocksToHtml, inlineImagesInHtml } from "@/components/blocks-view";
 import type { DocumentTypeId, PresentedSection } from "@/lib/types";
 
 const DOC_LABELS: Record<DocumentTypeId, { title: string; subtitle: string; description: string }> = {
@@ -119,39 +121,79 @@ export default function Extract({ documentType }: ExtractProps) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const downloadJson = () => {
-    if (!result?.sections) return;
-    const payload = sectionsToFlatJson(result.sections);
-    const content = JSON.stringify(
-      {
-        document_type: result.document_type,
-        document_label: result.document_label,
-        page_count: result.page_count,
-        runtime: result.runtime,
-        data: payload,
-      },
-      null,
-      2,
-    );
-    const blob = new Blob([content], { type: "application/json" });
+  const sections = result?.structured?.sections ?? null;
+  const marker = result?.marker ?? null;
+
+  const structuredJson = useMemo(
+    () => (sections ? sectionsToFlatJson(sections) : null),
+    [sections],
+  );
+
+  const markerHtml = useMemo(() => {
+    if (!marker) return "";
+    if (marker.html && marker.html.length > 0) {
+      return inlineImagesInHtml(marker.html, marker.images);
+    }
+    return blocksToHtml(marker.json, marker.images);
+  }, [marker]);
+
+  const triggerDownload = (filename: string, contents: string, mime: string) => {
+    const blob = new Blob([contents], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${result.document_type}-${Date.now()}.json`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  const copyJson = () => {
-    if (!result?.sections) return;
-    const payload = sectionsToFlatJson(result.sections);
-    navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+  const downloadStructuredJson = () => {
+    if (!result || !structuredJson) return;
+    const content = JSON.stringify(
+      {
+        document_type: result.document_type,
+        document_label: result.document_label,
+        page_count: result.page_count,
+        runtime: result.runtime,
+        data: structuredJson,
+      },
+      null,
+      2,
+    );
+    triggerDownload(
+      `${result.document_type}-fields-${Date.now()}.json`,
+      content,
+      "application/json",
+    );
+  };
+
+  const copyStructuredJson = () => {
+    if (!structuredJson) return;
+    navigator.clipboard.writeText(JSON.stringify(structuredJson, null, 2));
     toast({
       title: "Copied to clipboard",
       description: "Extracted fields copied as JSON.",
     });
+  };
+
+  const downloadMarkerJson = () => {
+    if (!marker) return;
+    triggerDownload(
+      `${result?.document_type ?? "document"}-blocks-${Date.now()}.json`,
+      JSON.stringify(marker.json ?? {}, null, 2),
+      "application/json",
+    );
+  };
+
+  const downloadMarkerHtml = () => {
+    if (!markerHtml) return;
+    triggerDownload(
+      `${result?.document_type ?? "document"}-blocks-${Date.now()}.html`,
+      `<!doctype html><html><head><meta charset="utf-8"><title>${result?.document_label ?? "Document"}</title></head><body>${markerHtml}</body></html>`,
+      "text/html",
+    );
   };
 
   return (
@@ -274,52 +316,181 @@ export default function Extract({ documentType }: ExtractProps) {
               </CardContent>
             </Card>
 
-            {status === "complete" && result?.sections && (
+            {status === "complete" && result && (
               <Card
                 className="border-border shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-500"
                 data-testid="result-card"
               >
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <div>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                      Extraction Complete
-                    </CardTitle>
-                    <CardDescription>
-                      {result.page_count ? `${result.page_count} page${result.page_count === 1 ? "" : "s"} · ` : ""}
-                      Processed in{" "}
-                      {result.runtime ? `${result.runtime.toFixed(1)}s` : `${elapsedTime}s`}
-                    </CardDescription>
+                <CardHeader className="pb-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                        Extraction Complete
+                      </CardTitle>
+                      <CardDescription>
+                        {result.page_count
+                          ? `${result.page_count} page${result.page_count === 1 ? "" : "s"} · `
+                          : ""}
+                        Processed in{" "}
+                        {result.runtime
+                          ? `${result.runtime.toFixed(1)}s`
+                          : `${elapsedTime}s`}
+                      </CardDescription>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={copyJson} data-testid="button-copy">
-                      <Copy className="w-4 h-4 mr-2" />
-                      Copy JSON
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={downloadJson}
-                      data-testid="button-download"
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      Download
-                    </Button>
-                  </div>
+                  {result.errors?.extract && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                      Structured field extraction failed: {result.errors.extract}
+                    </p>
+                  )}
+                  {result.errors?.marker && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                      Datalab block view failed: {result.errors.marker}
+                    </p>
+                  )}
                 </CardHeader>
                 <CardContent>
-                  {result.empty ? (
-                    <div className="p-6 rounded-md bg-muted/40 text-sm text-muted-foreground text-center">
-                      No fields could be extracted from this document. Try
-                      uploading a clearer scan or a different page.
-                    </div>
-                  ) : (
-                    <div className="space-y-6">
-                      {result.sections.map((section) => (
-                        <SectionView key={section.title} section={section} />
-                      ))}
-                    </div>
-                  )}
+                  <Tabs defaultValue="structured" className="w-full">
+                    <TabsList className="grid w-full grid-cols-4">
+                      <TabsTrigger
+                        value="structured"
+                        disabled={!sections}
+                        data-testid="tab-structured"
+                      >
+                        Structured Data
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="blocks"
+                        disabled={!marker?.json}
+                        data-testid="tab-blocks"
+                      >
+                        Blocks
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="html"
+                        disabled={!markerHtml}
+                        data-testid="tab-html"
+                      >
+                        HTML
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="json"
+                        disabled={!marker?.json}
+                        data-testid="tab-json"
+                      >
+                        JSON
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="structured" className="mt-5">
+                      {sections ? (
+                        <>
+                          <div className="flex justify-end gap-2 mb-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={copyStructuredJson}
+                              data-testid="button-copy-structured"
+                            >
+                              <Copy className="w-4 h-4 mr-2" />
+                              Copy JSON
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={downloadStructuredJson}
+                              data-testid="button-download-structured"
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              Download
+                            </Button>
+                          </div>
+                          {result.structured?.empty ? (
+                            <div className="p-6 rounded-md bg-muted/40 text-sm text-muted-foreground text-center">
+                              No fields could be extracted from this document. Try
+                              uploading a clearer scan or a different page.
+                            </div>
+                          ) : (
+                            <div className="space-y-6">
+                              {sections.map((section) => (
+                                <SectionView key={section.title} section={section} />
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="p-6 rounded-md bg-muted/40 text-sm text-muted-foreground text-center">
+                          Structured field extraction is not available for this document.
+                        </div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="blocks" className="mt-5">
+                      {marker?.json ? (
+                        <BlocksView root={marker.json} images={marker.images} />
+                      ) : (
+                        <div className="p-6 rounded-md bg-muted/40 text-sm text-muted-foreground text-center">
+                          Block view not available.
+                        </div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="html" className="mt-5">
+                      {markerHtml ? (
+                        <>
+                          <div className="flex justify-end gap-2 mb-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={downloadMarkerHtml}
+                              data-testid="button-download-html"
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              Download HTML
+                            </Button>
+                          </div>
+                          <div
+                            className="prose prose-sm dark:prose-invert max-w-none p-5 rounded-md border border-border bg-card [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded [&_img]:border [&_img]:border-border [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-border [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:p-2 [&_td]:align-top text-foreground"
+                            dangerouslySetInnerHTML={{ __html: markerHtml }}
+                            data-testid="html-view"
+                          />
+                        </>
+                      ) : (
+                        <div className="p-6 rounded-md bg-muted/40 text-sm text-muted-foreground text-center">
+                          HTML view not available.
+                        </div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="json" className="mt-5">
+                      {marker?.json ? (
+                        <>
+                          <div className="flex justify-end gap-2 mb-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={downloadMarkerJson}
+                              data-testid="button-download-json"
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              Download JSON
+                            </Button>
+                          </div>
+                          <pre
+                            className="text-xs bg-muted/40 border border-border rounded-md p-4 overflow-auto max-h-[600px]"
+                            data-testid="json-view"
+                          >
+                            {JSON.stringify(marker.json, null, 2)}
+                          </pre>
+                        </>
+                      ) : (
+                        <div className="p-6 rounded-md bg-muted/40 text-sm text-muted-foreground text-center">
+                          Raw JSON not available.
+                        </div>
+                      )}
+                    </TabsContent>
+                  </Tabs>
                 </CardContent>
               </Card>
             )}
