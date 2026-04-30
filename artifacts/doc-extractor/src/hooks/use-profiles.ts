@@ -84,12 +84,21 @@ export function useProfilesBySection(section: ProfileSection | null) {
   return { profiles, loading, error, refresh };
 }
 
-/** Create (or fetch the existing) profile for a phone number. */
-export async function createProfile(phone: string): Promise<ProfileSummary> {
+/**
+ * Create (or fetch the existing) profile for a phone number.
+ *
+ * `name` is required — it's the human-readable label shown in the menu and on
+ * the profile page. The server auto-generates a short `code` (e.g. "P-A4F2")
+ * to keep two same-named profiles distinguishable.
+ */
+export async function createProfile(
+  phone: string,
+  name: string,
+): Promise<ProfileSummary> {
   const res = await fetch(apiUrl("/api/profiles"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone }),
+    body: JSON.stringify({ phone, name }),
   });
   const data = (await res.json().catch(() => null)) as
     | { profile?: ProfileSummary; error?: string }

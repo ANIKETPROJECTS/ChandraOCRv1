@@ -40,6 +40,29 @@ const COLLECTION = "users";
 /** Phone validation: digits only, 7-15 chars (covers Indian + international formats). */
 const PHONE_RE = /^[0-9]{7,15}$/;
 
+/** Code alphabet — uppercase letters + digits, with ambiguous chars removed. */
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/**
+ * Generate a short, human-friendly code like "P-A4F2". Used to disambiguate
+ * profiles that share the same name. Caller passes a uniqueness check via
+ * `isTaken`; we retry up to a handful of times before giving up.
+ */
+async function generateUniqueCode(
+  isTaken: (code: string) => Promise<boolean>,
+): Promise<string> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    let suffix = "";
+    for (let i = 0; i < 4; i += 1) {
+      suffix += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+    }
+    const code = `P-${suffix}`;
+    if (!(await isTaken(code))) return code;
+  }
+  // Extremely unlikely fall-back: append a millisecond suffix.
+  return `P-${Date.now().toString(36).toUpperCase().slice(-4)}`;
+}
+
 /** Type guard to convert a path segment into a known section name. */
 function asSection(value: string): ProfileSection | null {
   return (PROFILE_SECTIONS as readonly string[]).includes(value)
@@ -69,6 +92,8 @@ router.get("/profiles", async (_req, res): Promise<void> => {
       {
         projection: {
           phone: 1,
+          name: 1,
+          code: 1,
           createdAt: 1,
           updatedAt: 1,
           // Only include sub-document presence — not full payloads — to keep
@@ -87,6 +112,9 @@ router.get("/profiles", async (_req, res): Promise<void> => {
     profiles: docs.map((d) => ({
       _id: d._id.toString(),
       phone: d["phone"],
+      // Fall back to the Aadhaar name for legacy docs that have no top-level name.
+      name: d["name"] ?? d["aadhar"]?.["name"] ?? null,
+      code: d["code"] ?? null,
       createdAt: d["createdAt"],
       updatedAt: d["updatedAt"],
       sections: {
@@ -157,21 +185,46 @@ router.get("/profiles/:phone", async (req, res): Promise<void> => {
 /* ------------------------------------------------------------------------- */
 router.post("/profiles", async (req, res): Promise<void> => {
   const phone = typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
+  const name =
+    typeof req.body?.name === "string" ? req.body.name.trim() : "";
   if (!PHONE_RE.test(phone)) {
     res.status(400).json({ error: "phone is required (7-15 digits)." });
+    return;
+  }
+  if (name.length === 0 || name.length > 120) {
+    res.status(400).json({ error: "name is required (1-120 chars)." });
     return;
   }
 
   const col = getDb().collection(COLLECTION);
   const existing = await col.findOne({ phone });
   if (existing) {
-    res.json({ profile: serializeProfile(existing), created: false });
+    // Backfill name / code on legacy docs that don't have them yet, but never
+    // overwrite an existing name or code.
+    const patch: Record<string, unknown> = {};
+    if (!existing["name"]) patch["name"] = name;
+    if (!existing["code"]) {
+      patch["code"] = await generateUniqueCode(
+        async (c) => (await col.countDocuments({ code: c })) > 0,
+      );
+    }
+    if (Object.keys(patch).length > 0) {
+      patch["updatedAt"] = nowIso();
+      await col.updateOne({ _id: existing._id }, { $set: patch });
+    }
+    const refreshed = (await col.findOne({ _id: existing._id })) ?? existing;
+    res.json({ profile: serializeProfile(refreshed), created: false });
     return;
   }
 
+  const code = await generateUniqueCode(
+    async (c) => (await col.countDocuments({ code: c })) > 0,
+  );
   const now = nowIso();
   const result = await col.insertOne({
     phone,
+    name,
+    code,
     createdAt: now,
     updatedAt: now,
   });

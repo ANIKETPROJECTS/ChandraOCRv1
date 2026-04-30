@@ -106,6 +106,10 @@ export const DOC_TO_SECTION: Record<DocumentTypeId, ProfileSection> = {
 export interface ProfileSummary {
   _id: string;
   phone: string;
+  /** Human-readable name supplied at profile creation. */
+  name?: string | null;
+  /** Auto-generated short code (e.g. "P-A4F2") for disambiguation. */
+  code?: string | null;
   createdAt?: string;
   updatedAt?: string;
   sections: Record<ProfileSection, boolean>;
@@ -116,6 +120,8 @@ export interface ProfileSummary {
 export interface ProfileDoc {
   _id: string;
   phone: string;
+  name?: string;
+  code?: string;
   createdAt?: string;
   updatedAt?: string;
   aadhar?: Record<string, unknown>;

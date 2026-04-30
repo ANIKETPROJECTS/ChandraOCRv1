@@ -132,6 +132,10 @@ export interface Form12Subdoc {
 
 export interface UserProfile {
   phone: string;
+  /** Human-readable name supplied at profile creation. */
+  name?: string;
+  /** Auto-generated short code (e.g. "P-A4F2") to disambiguate same-name profiles. */
+  code?: string;
   createdAt: string;
   updatedAt: string;
   aadhar?: AadharSubdoc;
