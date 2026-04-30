@@ -10,6 +10,7 @@
  *   - `passbook` : Bank passbook (account & branch) details
  *   - `form7`    : Maharashtra 7/12 ownership register
  *   - `form12`   : Maharashtra 7/12 crop inspection register
+ *   - `form8a`   : Maharashtra 8A khata utara (combined holdings register)
  *
  * Endpoints (mounted under `/api`):
  *
@@ -102,6 +103,7 @@ router.get("/profiles", async (_req, res): Promise<void> => {
           "passbook.bankName": 1,
           "form7.village": 1,
           "form12.village": 1,
+          "form8a.village": 1,
         },
       },
     )
@@ -122,12 +124,14 @@ router.get("/profiles", async (_req, res): Promise<void> => {
         passbook: Boolean(d["passbook"]),
         form7: Boolean(d["form7"]),
         form12: Boolean(d["form12"]),
+        form8a: Boolean(d["form8a"]),
       },
       labels: {
         aadhar: d["aadhar"]?.["name"] ?? null,
         passbook: d["passbook"]?.["bankName"] ?? null,
         form7: d["form7"]?.["village"] ?? null,
         form12: d["form12"]?.["village"] ?? null,
+        form8a: d["form8a"]?.["village"] ?? null,
       },
     })),
   });

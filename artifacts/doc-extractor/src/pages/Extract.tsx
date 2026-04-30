@@ -69,6 +69,12 @@ const DOC_LABELS: Record<DocumentTypeId, { title: string; subtitle: string; desc
     description:
       "Upload a Form 12 (Pik Pahani) page. We extract every crop, season, irrigation source, and area entry.",
   },
+  form8a: {
+    title: "Form 8A",
+    subtitle: "Maharashtra Holding Register (खाते उतारा / 8-अ)",
+    description:
+      "Upload a Form 8A (Khata Utara) page. We extract khatedar details and every survey-number holding with area and assessment.",
+  },
   aadhar: {
     title: "Aadhaar Card",
     subtitle: "UIDAI Identity Card",

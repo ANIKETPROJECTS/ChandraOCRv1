@@ -1,6 +1,11 @@
 export type ExtractionMode = "fast" | "balanced" | "accurate";
 
-export type DocumentTypeId = "form7" | "form12" | "aadhar" | "bank_passbook";
+export type DocumentTypeId =
+  | "form7"
+  | "form12"
+  | "form8a"
+  | "aadhar"
+  | "bank_passbook";
 
 export interface DocumentTypeMeta {
   id: DocumentTypeId;
@@ -92,12 +97,18 @@ export interface RecentExtraction {
 /* ----------------------------------------------------------------------- */
 
 /** Section names that map 1:1 to MongoDB sub-documents on a user profile. */
-export type ProfileSection = "aadhar" | "passbook" | "form7" | "form12";
+export type ProfileSection =
+  | "aadhar"
+  | "passbook"
+  | "form7"
+  | "form12"
+  | "form8a";
 
 /** Maps a Home-page hamburger entry (DocumentTypeId) to its profile section. */
 export const DOC_TO_SECTION: Record<DocumentTypeId, ProfileSection> = {
   form7: "form7",
   form12: "form12",
+  form8a: "form8a",
   aadhar: "aadhar",
   bank_passbook: "passbook",
 };
@@ -128,4 +139,5 @@ export interface ProfileDoc {
   passbook?: Record<string, unknown>;
   form7?: Record<string, unknown>;
   form12?: Record<string, unknown>;
+  form8a?: Record<string, unknown>;
 }

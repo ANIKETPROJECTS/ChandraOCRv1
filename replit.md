@@ -48,6 +48,7 @@ profile in MongoDB (`apnaapp.users`).
   - `passbook` ← Datalab passbook fields (`bankName`, `cifNumber`, `ifsc`, `branchCode`, etc.).
   - `form7`    ← Form 7 ownership register (owners, area, encumbrances, mutations).
   - `form12`   ← Form 12 (`crop_entries` table → `cropEntries` array).
+  - `form8a`   ← Form 8A khata utara — combined holdings register (`holdings` table of survey-number rows).
 - Frontend routes (wouter):
   - `/`                    Home with hamburger drawer (`src/components/profile-menu.tsx`).
   - `/extract/:type`       Upload + view structured + Datalab block view; pre-binds `?profile_phone=` for auto-save.

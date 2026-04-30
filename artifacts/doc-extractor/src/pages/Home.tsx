@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { FileText, ScrollText, IdCard, BookOpen, Clock, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { FileText, ScrollText, IdCard, BookOpen, Clock, CheckCircle, AlertCircle, Loader2, Landmark } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useRecentExtractions } from "@/hooks/use-extractor";
 import { ProfileMenu } from "@/components/profile-menu";
@@ -32,6 +32,15 @@ const DOCS: DocCard[] = [
       "Extract every crop inspection row — year, season, crop, irrigation, and area — from the Satbara Form 12 (पीक पाहणी).",
     icon: FileText,
     accent: "text-emerald-700 bg-emerald-50 border-emerald-200",
+  },
+  {
+    id: "form8a",
+    title: "Form 8A",
+    subtitle: "Maharashtra Holding Register — खाते उतारा / 8-अ",
+    description:
+      "Extract khatedar details and every survey-number holding — area, assessment, pot-kharab — from the combined खाते उतारा (8A).",
+    icon: Landmark,
+    accent: "text-blue-700 bg-blue-50 border-blue-200",
   },
   {
     id: "aadhar",

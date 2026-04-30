@@ -24,7 +24,7 @@
  */
 import type { PresentedDocument, PresentedSection } from "./document-types";
 
-export type ProfileSection = "aadhar" | "passbook" | "form7" | "form12";
+export type ProfileSection = "aadhar" | "passbook" | "form7" | "form12" | "form8a";
 
 /** Section names valid as the URL `:section` parameter and the user's hamburger menu. */
 export const PROFILE_SECTIONS: ProfileSection[] = [
@@ -32,6 +32,7 @@ export const PROFILE_SECTIONS: ProfileSection[] = [
   "passbook",
   "form7",
   "form12",
+  "form8a",
 ];
 
 /** Maps the public document type id used by the frontend to the profile section. */
@@ -45,6 +46,8 @@ export function documentTypeToSection(documentType: string): ProfileSection | nu
       return "form7";
     case "form12":
       return "form12";
+    case "form8a":
+      return "form8a";
     default:
       return null;
   }
@@ -215,6 +218,35 @@ export interface Form12Subdoc {
   images?: ProfileImage[];
 }
 
+/** Form 8A (Maharashtra Khata Utara — combined holdings register for one khate). */
+export interface Form8aHolding {
+  surveyNumber?: string;
+  area?: string;
+  assessment?: string;
+  potkharab?: string;
+  remarks?: string;
+}
+
+export interface Form8aSubdoc {
+  village?: string;
+  taluka?: string;
+  district?: string;
+  khateNumber?: string;
+  ownerNames?: string[];
+  ownerAddress?: string;
+  totalArea?: string;
+  totalAssessment?: string;
+  nonAgriculturalArea?: string;
+  potkharabArea?: string;
+  holdings?: Form8aHolding[];
+  /** Every Table block from the source document, captured verbatim. */
+  tables?: Form7Table[];
+  /** Free-form text blocks captured verbatim from the source document. */
+  textBlocks?: string[];
+  rawText?: string;
+  html?: string;
+}
+
 export interface UserProfile {
   phone: string;
   /** Human-readable name supplied at profile creation. */
@@ -227,6 +259,7 @@ export interface UserProfile {
   passbook?: PassbookSubdoc;
   form7?: Form7Subdoc;
   form12?: Form12Subdoc;
+  form8a?: Form8aSubdoc;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -267,7 +300,12 @@ function nonEmpty(v: string | undefined): string | undefined {
 
 export interface MappedExtraction {
   section: ProfileSection;
-  data: AadharSubdoc | PassbookSubdoc | Form7Subdoc | Form12Subdoc;
+  data:
+    | AadharSubdoc
+    | PassbookSubdoc
+    | Form7Subdoc
+    | Form12Subdoc
+    | Form8aSubdoc;
 }
 
 /** Optional Datalab Marker output — full HTML + every embedded image. */
@@ -990,6 +1028,63 @@ export function mapExtractionToSection(
         rawText,
         html: htmlNoImages,
         images,
+      });
+      return { section, data };
+    }
+
+    case "form8a": {
+      const ownerNamesCsv = nonEmpty(fields["owner_names"]);
+      const ownerNames = ownerNamesCsv
+        ? ownerNamesCsv.split(/\s*,\s*/).filter(Boolean)
+        : undefined;
+
+      // Pull every row of the holdings table.
+      const holdingsRows =
+        presented?.sections
+          .flatMap((s) => s.tables)
+          .find((t) => t.key === "holdings")?.rows ?? [];
+
+      const holdings = holdingsRows
+        .map((row) => {
+          const v = row.values as Record<string, string>;
+          const entry = stripUndefined({
+            surveyNumber: nonEmpty(v["survey_number"]),
+            area: nonEmpty(v["area"]),
+            assessment: nonEmpty(v["assessment"]),
+            potkharab: nonEmpty(v["potkharab"]),
+            remarks: nonEmpty(v["remarks"]),
+          });
+          return Object.keys(entry).length > 0 ? entry : null;
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      // Capture every Table block from the source document verbatim so the
+      // full khata-utara layout (sub-rows, totals, blank cells, etc.) is
+      // preserved alongside the structured holdings array.
+      const tablesFromBlocks = extractTablesFromMarkerJson(marker?.json);
+      const textBlocks = extractTextBlocksFromMarkerJson(marker?.json);
+
+      // Strip <img> tags from the saved HTML so any image bytes we don't
+      // persist don't render as broken-image placeholders, mirroring the
+      // Form 7 / Form 12 behaviour.
+      const htmlNoImages = html ? stripImgTags(html) : undefined;
+
+      const data: Form8aSubdoc = stripUndefined({
+        village: nonEmpty(fields["village"]),
+        taluka: nonEmpty(fields["taluka"]),
+        district: nonEmpty(fields["district"]),
+        khateNumber: nonEmpty(fields["khate_number"]),
+        ownerNames,
+        ownerAddress: nonEmpty(fields["owner_address"]),
+        totalArea: nonEmpty(fields["total_area"]),
+        totalAssessment: nonEmpty(fields["total_assessment"]),
+        nonAgriculturalArea: nonEmpty(fields["non_agricultural_area"]),
+        potkharabArea: nonEmpty(fields["potkharab_area"]),
+        holdings: holdings.length > 0 ? holdings : undefined,
+        tables: tablesFromBlocks.length > 0 ? tablesFromBlocks : undefined,
+        textBlocks: textBlocks.length > 0 ? textBlocks : undefined,
+        rawText,
+        html: htmlNoImages,
       });
       return { section, data };
     }

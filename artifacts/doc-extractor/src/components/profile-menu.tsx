@@ -21,6 +21,7 @@ import {
   BookOpen,
   ScrollText,
   FileText,
+  Landmark,
   Trash2,
   Loader2,
   ChevronDown,
@@ -95,6 +96,14 @@ const SECTIONS: SectionEntry[] = [
     accent: "text-emerald-700 bg-emerald-50 border-emerald-200",
   },
   {
+    id: "form8a",
+    section: DOC_TO_SECTION.form8a,
+    title: "Form 8A",
+    subtitle: "Maharashtra Holding Register — खाते उतारा",
+    icon: Landmark,
+    accent: "text-blue-700 bg-blue-50 border-blue-200",
+  },
+  {
     id: "aadhar",
     section: DOC_TO_SECTION.aadhar,
     title: "Aadhaar Card",
@@ -134,6 +143,7 @@ export function ProfileMenu() {
     passbook: true,
     form7: true,
     form12: true,
+    form8a: true,
   });
   const { profiles, loading, error, refresh } = useProfiles();
   const { toast } = useToast();

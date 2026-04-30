@@ -666,9 +666,134 @@ const BANK_PASSBOOK: DocumentTypeDef = {
   ],
 };
 
+const FORM8A: DocumentTypeDef = {
+  id: "form8a",
+  label: "Form 8A (Maharashtra Holding Register — खाते उतारा / 8-अ)",
+  description:
+    "Maharashtra 8-अ Khata Utara — combined holdings register for one khate (account). Lists every survey number / sub-division held by the same khatedar (owner) along with its area and land-revenue assessment.",
+  sections: ["Header Details", "Owner & Khata", "Holdings Summary"],
+  fields: [
+    {
+      key: "village",
+      label: "Village (गाव)",
+      description: "Name of the village where the khata is registered.",
+      type: "string",
+      section: "Header Details",
+    },
+    {
+      key: "taluka",
+      label: "Taluka (तालुका)",
+      description: "Sub-district / block.",
+      type: "string",
+      section: "Header Details",
+    },
+    {
+      key: "district",
+      label: "District (जिल्हा)",
+      description: "District.",
+      type: "string",
+      section: "Header Details",
+    },
+    {
+      key: "khate_number",
+      label: "Khate Number (खाते क्रमांक)",
+      description: "Khata / land-revenue account number this 8A belongs to.",
+      type: "string",
+      section: "Owner & Khata",
+    },
+    {
+      key: "owner_names",
+      label: "Khatedar Name(s) (खातेदाराचे नाव)",
+      description:
+        "Full name(s) of the khatedar (account holder). Return as a list of names exactly as printed.",
+      type: "string[]",
+      section: "Owner & Khata",
+    },
+    {
+      key: "owner_address",
+      label: "Khatedar Address (खातेदाराचा पत्ता)",
+      description: "Postal address of the khatedar, if printed.",
+      type: "string",
+      section: "Owner & Khata",
+    },
+    {
+      key: "total_area",
+      label: "Total Area (एकूण क्षेत्र)",
+      description:
+        "Total cultivable area held under this khata across all survey numbers, with units (Hectare-Are or H.R.Sq.M.).",
+      type: "string",
+      section: "Holdings Summary",
+    },
+    {
+      key: "total_assessment",
+      label: "Total Assessment (एकूण आकार)",
+      description: "Total land-revenue assessment payable for the khata.",
+      type: "string",
+      section: "Holdings Summary",
+    },
+    {
+      key: "non_agricultural_area",
+      label: "Non-Agricultural Area (अकृषिक क्षेत्र)",
+      description: "Portion of the holding converted to non-agricultural use, if printed.",
+      type: "string",
+      section: "Holdings Summary",
+    },
+    {
+      key: "potkharab_area",
+      label: "Potkharab Area (पोटखराब क्षेत्र)",
+      description: "Total uncultivable (pot-kharab) area across the khata, if printed.",
+      type: "string",
+      section: "Holdings Summary",
+    },
+  ],
+  tables: [
+    {
+      key: "holdings",
+      label: "Survey Number Holdings",
+      section: "Holdings Summary",
+      description:
+        "Each row of the खाते उतारा showing one survey number / sub-division held under this khata. Skip header / total / unit-label rows.",
+      columns: [
+        {
+          key: "survey_number",
+          label: "Survey No. / Sub-Div (भूमापन क्र / उपविभाग)",
+          description: "Survey number with sub-division for this holding row.",
+          type: "string",
+        },
+        {
+          key: "area",
+          label: "Area (क्षेत्र)",
+          description:
+            "Cultivable area of this survey number, with units (Hectare-Are or H.R.Sq.M.).",
+          type: "string",
+        },
+        {
+          key: "assessment",
+          label: "Assessment (आकार)",
+          description: "Land-revenue assessment for this survey number row.",
+          type: "string",
+        },
+        {
+          key: "potkharab",
+          label: "Potkharab (पोटखराब)",
+          description: "Pot-kharab / uncultivable area for this row, if printed.",
+          type: "string",
+        },
+        {
+          key: "remarks",
+          label: "Remarks (शेरा)",
+          description: "Any remark printed against this holding row.",
+          type: "string",
+        },
+      ],
+    },
+  ],
+};
+
 export const DOCUMENT_TYPES: Record<string, DocumentTypeDef> = {
   form7: FORM7,
   form12: FORM12,
+  form8a: FORM8A,
   aadhar: AADHAR,
   bank_passbook: BANK_PASSBOOK,
 };

@@ -17,6 +17,7 @@ import {
   BookOpen,
   ScrollText,
   FileText,
+  Landmark,
   Upload,
   Trash2,
   Loader2,
@@ -203,6 +204,29 @@ const SECTIONS: SectionMeta[] = [
     },
     tableKeys: [{ key: "cropEntries", label: "Crop Inspection Entries" }],
   },
+  {
+    key: "form8a",
+    documentType: "form8a",
+    title: "Form 8A",
+    subtitle: "Maharashtra Holding Register — खाते उतारा",
+    icon: Landmark,
+    accent: "text-blue-700 bg-blue-50 border-blue-200",
+    fieldLabels: {
+      village: "Village",
+      taluka: "Taluka",
+      district: "District",
+      khateNumber: "Khate Number",
+      ownerNames: "Khatedar Name(s)",
+      ownerAddress: "Khatedar Address",
+      totalArea: "Total Area",
+      totalAssessment: "Total Assessment",
+      nonAgriculturalArea: "Non-Agricultural Area",
+      potkharabArea: "Potkharab Area",
+      rawText: "Raw OCR Text",
+    },
+    listKeys: ["ownerNames"],
+    tableKeys: [{ key: "holdings", label: "Survey Number Holdings" }],
+  },
 ];
 
 const CROP_ENTRY_COLUMNS: { key: string; label: string }[] = [
@@ -238,10 +262,19 @@ const OWNERSHIP_ENTRY_COLUMNS: { key: string; label: string }[] = [
   { key: "tenantRentOtherRights", label: "Tenant / Rent / Other Rights" },
 ];
 
+const HOLDINGS_COLUMNS: { key: string; label: string }[] = [
+  { key: "surveyNumber", label: "Survey No. / Sub-Div" },
+  { key: "area", label: "Area" },
+  { key: "assessment", label: "Assessment" },
+  { key: "potkharab", label: "Potkharab" },
+  { key: "remarks", label: "Remarks" },
+];
+
 const TABLE_COLUMNS: Record<string, { key: string; label: string }[]> = {
   cropEntries: CROP_ENTRY_COLUMNS,
   transactions: TRANSACTION_COLUMNS,
   ownershipEntries: OWNERSHIP_ENTRY_COLUMNS,
+  holdings: HOLDINGS_COLUMNS,
 };
 
 const apiUrl = (path: string): string => {

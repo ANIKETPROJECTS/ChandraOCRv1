@@ -10,7 +10,7 @@ import type { DocumentTypeId } from "@/lib/types";
 
 const queryClient = new QueryClient();
 
-const VALID_TYPES: DocumentTypeId[] = ["form7", "form12", "aadhar", "bank_passbook"];
+const VALID_TYPES: DocumentTypeId[] = ["form7", "form12", "form8a", "aadhar", "bank_passbook"];
 
 function ExtractRoute({ params }: { params: { type: string } }) {
   const t = params.type as DocumentTypeId;
