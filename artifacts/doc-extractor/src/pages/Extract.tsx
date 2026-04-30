@@ -12,6 +12,7 @@ import {
   Loader2,
   User,
   UserPlus,
+  ExternalLink,
 } from "lucide-react";
 import {
   Dialog,
@@ -408,16 +409,29 @@ export default function Extract({ documentType }: ExtractProps) {
                     </div>
                   </div>
                   {result.profile?.saved && (
-                    <p
-                      className="text-xs text-green-700 dark:text-green-400 mt-2 flex items-center gap-1.5"
+                    <div
+                      className="mt-2 flex flex-wrap items-center gap-2"
                       data-testid="profile-saved"
                     >
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      Saved to profile +{result.profile.phone}
-                      {result.profile.section
-                        ? ` · ${result.profile.section}`
-                        : ""}
-                    </p>
+                      <p className="text-xs text-green-700 dark:text-green-400 flex items-center gap-1.5">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        Saved to profile +{result.profile.phone}
+                        {result.profile.section
+                          ? ` · ${result.profile.section}`
+                          : ""}
+                      </p>
+                      <Link href={`/profile/${result.profile.phone}`}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2.5 text-xs gap-1"
+                          data-testid="button-view-saved-profile"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          View profile
+                        </Button>
+                      </Link>
+                    </div>
                   )}
                   {result.profile && !result.profile.saved && result.profile.error && (
                     <p
