@@ -54,6 +54,16 @@ export function documentTypeToSection(documentType: string): ProfileSection | nu
 /* Sub-document shapes (must match the existing MongoDB document exactly).   */
 /* ------------------------------------------------------------------------- */
 
+/** A picture pulled from the document (Aadhaar portrait, signature, logo, …). */
+export interface ProfileImage {
+  /** Original Datalab filename (e.g. "_page_0_Picture_1.jpeg"). */
+  name: string;
+  /** Inferred MIME type, ready for use in a `data:` URL. */
+  mimeType: string;
+  /** Bare base64 payload (no `data:` prefix). */
+  base64: string;
+}
+
 export interface AadharSubdoc {
   name?: string;
   aadhaarNumber?: string;
@@ -69,6 +79,10 @@ export interface AadharSubdoc {
   photoBase64?: string;
   photoMimeType?: string;
   rawText?: string;
+  /** Full HTML rendering of the document from Datalab Marker. */
+  html?: string;
+  /** Every picture extracted from the document, keyed by Datalab filename. */
+  images?: ProfileImage[];
 }
 
 export interface PassbookTransaction {
@@ -101,6 +115,8 @@ export interface PassbookSubdoc {
   currentBalance?: string;
   transactions?: PassbookTransaction[];
   rawText?: string;
+  html?: string;
+  images?: ProfileImage[];
 }
 
 /** Form 7 (Maharashtra 7/12 Ownership Register). Stores extractor fields as-is + rawText. */
@@ -128,6 +144,8 @@ export interface Form7Subdoc {
   lastMutationDate?: string;
   pendingMutation?: string;
   rawText?: string;
+  html?: string;
+  images?: ProfileImage[];
 }
 
 /** Form 12 (Maharashtra 7/12 Crop Inspection Register). */
@@ -151,6 +169,8 @@ export interface Form12Subdoc {
     remarks?: string;
   }>;
   rawText?: string;
+  html?: string;
+  images?: ProfileImage[];
 }
 
 export interface UserProfile {
@@ -208,26 +228,89 @@ export interface MappedExtraction {
   data: AadharSubdoc | PassbookSubdoc | Form7Subdoc | Form12Subdoc;
 }
 
+/** Optional Datalab Marker output — full HTML + every embedded image. */
+export interface MarkerInput {
+  html: string | null;
+  images: Record<string, string> | null;
+}
+
+/** Guess the MIME type from a filename extension. */
+function guessMimeFromName(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "png") return "image/png";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "webp") return "image/webp";
+  if (ext === "gif") return "image/gif";
+  if (ext === "svg") return "image/svg+xml";
+  return "image/jpeg";
+}
+
+/** Strip a `data:...;base64,` prefix if present, leaving the bare payload. */
+function stripDataUrlPrefix(value: string): string {
+  const m = value.match(/^data:[^;]+;base64,(.*)$/);
+  return m ? m[1] : value;
+}
+
+/** Convert Datalab's images map into our persistent ProfileImage[] form. */
+function normalizeImages(
+  images: Record<string, string> | null | undefined,
+): ProfileImage[] | undefined {
+  if (!images) return undefined;
+  const out: ProfileImage[] = [];
+  for (const [name, value] of Object.entries(images)) {
+    if (typeof value !== "string" || value.length === 0) continue;
+    out.push({
+      name,
+      mimeType: guessMimeFromName(name),
+      base64: stripDataUrlPrefix(value),
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Pick the most likely "portrait" picture from an Aadhaar's images.
+ * Heuristic: largest base64 payload wins — the State Emblem and Aadhaar logo
+ * are always tiny, the actual face photo is the dominant picture on the card.
+ */
+function pickPortrait(
+  images: ProfileImage[] | undefined,
+): { base64: string; mimeType: string } | undefined {
+  if (!images || images.length === 0) return undefined;
+  let best: ProfileImage | null = null;
+  for (const img of images) {
+    if (!best || img.base64.length > best.base64.length) best = img;
+  }
+  if (!best) return undefined;
+  return { base64: best.base64, mimeType: best.mimeType };
+}
+
 /**
  * Convert the structured extraction result into a sub-document matching the
  * persisted MongoDB user schema.
  *
  * `markdown` is captured into the `rawText` field on every section, mirroring
- * the existing user document.
+ * the existing user document. `marker` (when present) carries the full HTML
+ * rendering and every embedded picture so the profile page can show the same
+ * visual the user saw on the extract page.
  */
 export function mapExtractionToSection(
   documentType: string,
   presented: PresentedDocument | null,
   markdown: string | null,
+  marker?: MarkerInput | null,
 ): MappedExtraction | null {
   const section = documentTypeToSection(documentType);
   if (!section) return null;
 
   const fields = presented ? flattenFields(presented.sections) : {};
   const rawText = nonEmpty(markdown ?? undefined);
+  const html = nonEmpty(marker?.html ?? undefined);
+  const images = normalizeImages(marker?.images);
 
   switch (section) {
     case "aadhar": {
+      const portrait = pickPortrait(images);
       const data: AadharSubdoc = stripUndefined({
         name: nonEmpty(fields["full_name"]),
         aadhaarNumber: nonEmpty(fields["aadhaar_number"]),
@@ -240,7 +323,11 @@ export function mapExtractionToSection(
         state: nonEmpty(fields["state"]),
         mobileNumber: nonEmpty(fields["mobile_number"]),
         issueDate: nonEmpty(fields["issue_date"]),
+        photoBase64: portrait?.base64,
+        photoMimeType: portrait?.mimeType,
         rawText,
+        html,
+        images,
       });
       return { section, data };
     }
@@ -303,6 +390,8 @@ export function mapExtractionToSection(
         currentBalance: nonEmpty(fields["current_balance"]),
         transactions: transactions.length > 0 ? transactions : undefined,
         rawText,
+        html,
+        images,
       });
       return { section, data };
     }
@@ -337,6 +426,8 @@ export function mapExtractionToSection(
         lastMutationDate: nonEmpty(fields["last_mutation_date"]),
         pendingMutation: nonEmpty(fields["pending_mutation"]),
         rawText,
+        html,
+        images,
       });
       return { section, data };
     }
@@ -375,6 +466,8 @@ export function mapExtractionToSection(
         khateNumber: nonEmpty(fields["khate_number"]),
         cropEntries: cropEntries.length > 0 ? cropEntries : undefined,
         rawText,
+        html,
+        images,
       });
       return { section, data };
     }

@@ -276,16 +276,17 @@ async function persistToProfile(
   docDef: DocumentTypeDef,
   presented: PresentedDocument | null,
   markdown: string | null,
+  marker: { html: string | null; images: Record<string, string> | null } | null,
 ): Promise<{ saved: boolean; section: string | null; error: string | null }> {
   if (!meta.profilePhone) {
     return { saved: false, section: null, error: null };
   }
   if (meta.saved) {
-    const mapped = mapExtractionToSection(docDef.id, presented, markdown);
+    const mapped = mapExtractionToSection(docDef.id, presented, markdown, marker);
     return { saved: true, section: mapped?.section ?? null, error: null };
   }
 
-  const mapped = mapExtractionToSection(docDef.id, presented, markdown);
+  const mapped = mapExtractionToSection(docDef.id, presented, markdown, marker);
   if (!mapped) {
     return {
       saved: false,
@@ -476,7 +477,13 @@ router.get("/extract/:requestId", async (req, res): Promise<void> => {
   }
 
   // Auto-save to MongoDB if a profile_phone was supplied at submission time.
-  const persisted = await persistToProfile(meta, docDef, structured, marker?.markdown ?? null);
+  const persisted = await persistToProfile(
+    meta,
+    docDef,
+    structured,
+    marker?.markdown ?? null,
+    marker ? { html: marker.html, images: marker.images } : null,
+  );
   if (persisted.error) {
     logger.warn({ err: persisted.error, phone: meta.profilePhone }, "Profile save failed");
   }

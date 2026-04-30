@@ -51,11 +51,19 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { deleteProfile } from "@/hooks/use-profiles";
+import { inlineImagesInHtml } from "@/components/blocks-view";
 import type {
   DocumentTypeId,
   ProfileDoc,
   ProfileSection,
 } from "@/lib/types";
+
+/** Stored shape of an image saved alongside a profile section. */
+interface ProfileImage {
+  name: string;
+  mimeType: string;
+  base64: string;
+}
 
 interface ProfileProps {
   phone: string;
@@ -515,14 +523,40 @@ function SectionBody({ section, data }: SectionBodyProps) {
       ? (data.photoMimeType as string)
       : "image/jpeg";
 
+  // Pictures Datalab pulled out of the document (portrait, signature, logos…).
+  const images = Array.isArray(data.images)
+    ? (data.images as unknown[]).filter(
+        (i): i is ProfileImage =>
+          typeof i === "object" &&
+          i !== null &&
+          typeof (i as ProfileImage).base64 === "string" &&
+          (i as ProfileImage).base64.length > 0,
+      )
+    : [];
+
+  // Full HTML rendering of the document from the marker pipeline.
+  const html =
+    typeof data.html === "string" && data.html.trim().length > 0
+      ? (data.html as string)
+      : null;
+
+  // Build the {filename: base64} map used to inline image src= refs in the HTML.
+  const imageMap: Record<string, string> = {};
+  for (const img of images) imageMap[img.name] = img.base64;
+
   // Plain key/value rows for everything except known table/list/internal keys
-  // and the photo fields (which get their own renderer above the table).
+  // and the special-render keys (photo, images gallery, html, mongo id).
+  const SKIP_KEYS = new Set([
+    "_id",
+    "photoBase64",
+    "photoMimeType",
+    "images",
+    "html",
+  ]);
   const flatEntries = Object.entries(data).filter(
     ([key, value]) =>
       !tableKeys.has(key) &&
-      key !== "_id" &&
-      key !== "photoBase64" &&
-      key !== "photoMimeType" &&
+      !SKIP_KEYS.has(key) &&
       value !== null &&
       value !== undefined &&
       (typeof value !== "string" || value.trim().length > 0),
@@ -604,6 +638,46 @@ function SectionBody({ section, data }: SectionBodyProps) {
           </div>
         );
       })}
+
+      {images.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Pictures from document ({images.length})
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {images.map((img) => (
+              <figure
+                key={img.name}
+                className="rounded-md border border-border bg-muted/20 p-2 flex flex-col items-center gap-1"
+                data-testid={`profile-image-${img.name}`}
+              >
+                <img
+                  src={`data:${img.mimeType};base64,${img.base64}`}
+                  alt={img.name}
+                  className="max-h-40 w-auto rounded-sm object-contain"
+                />
+                <figcaption className="text-[10px] text-muted-foreground font-mono truncate max-w-[10rem]">
+                  {img.name}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {html && (
+        <details className="rounded-md border border-border" data-testid="document-html-view">
+          <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:bg-muted/30">
+            Full document view
+          </summary>
+          <div
+            className="p-4 prose prose-sm dark:prose-invert max-w-none [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded [&_img]:border [&_img]:border-border [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-border [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:p-2 [&_td]:align-top text-foreground"
+            dangerouslySetInnerHTML={{
+              __html: inlineImagesInHtml(html, imageMap),
+            }}
+          />
+        </details>
+      )}
     </div>
   );
 }
