@@ -115,6 +115,17 @@ export interface PassbookSubdoc {
   images?: ProfileImage[];
 }
 
+/** A single ownership row from the Form 7 main table. */
+export interface Form7OwnershipEntry {
+  khateNumber?: string;
+  ownerName?: string;
+  area?: string;
+  assessment?: string;
+  collectionCharges?: string;
+  mutationNumber?: string;
+  tenantRentOtherRights?: string;
+}
+
 /** Form 7 (Maharashtra 7/12 Ownership Register). Stores extractor fields as-is + rawText. */
 export interface Form7Subdoc {
   village?: string;
@@ -139,9 +150,11 @@ export interface Form7Subdoc {
   lastMutationNumber?: string;
   lastMutationDate?: string;
   pendingMutation?: string;
+  oldMutationNumbers?: string[];
+  boundaryAndSurveyMarks?: string;
+  ownershipEntries?: Form7OwnershipEntry[];
   rawText?: string;
   html?: string;
-  images?: ProfileImage[];
 }
 
 /** Form 12 (Maharashtra 7/12 Crop Inspection Register). */
@@ -269,6 +282,21 @@ function normalizeImages(
 /** Strip HTML tags and collapse whitespace. */
 function stripHtml(s: string): string {
   return s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Remove every `<img>` tag and Marker's surrounding `img-description` /
+ * `img-alt` divs from an HTML fragment. Used when a profile section is
+ * persisted without its image bytes — leaving the `<img src="…">` in place
+ * would just render as a broken-image placeholder on the profile page.
+ */
+function stripImgTags(html: string): string {
+  return html
+    .replace(/<img\b[^>]*\/?>/gi, "")
+    .replace(
+      /<div\b[^>]*class=["'][^"']*\bimg-(?:description|alt)\b[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+      "",
+    );
 }
 
 const PORTRAIT_RE = /portrait|photograph|\bphoto\b|cardholder|face\b|head\s*shot|headshot|passport\s*photo|user\s*image|profile\s*image/i;
@@ -692,6 +720,39 @@ export function mapExtractionToSection(
         ? ownerNamesCsv.split(/\s*,\s*/).filter(Boolean)
         : undefined;
 
+      const oldMutationNumbersCsv = nonEmpty(fields["old_mutation_numbers"]);
+      const oldMutationNumbers = oldMutationNumbersCsv
+        ? oldMutationNumbersCsv.split(/\s*,\s*/).filter(Boolean)
+        : undefined;
+
+      // Pull every row of the main ownership / khata table.
+      const ownershipRows =
+        presented?.sections
+          .flatMap((s) => s.tables)
+          .find((t) => t.key === "ownership_entries")?.rows ?? [];
+
+      const ownershipEntries = ownershipRows
+        .map((row) => {
+          const v = row.values as Record<string, string>;
+          const entry = stripUndefined({
+            khateNumber: nonEmpty(v["khate_number"]),
+            ownerName: nonEmpty(v["owner_name"]),
+            area: nonEmpty(v["area"]),
+            assessment: nonEmpty(v["assessment"]),
+            collectionCharges: nonEmpty(v["collection_charges"]),
+            mutationNumber: nonEmpty(v["mutation_number"]),
+            tenantRentOtherRights: nonEmpty(v["tenant_rent_other_rights"]),
+          });
+          return Object.keys(entry).length > 0 ? entry : null;
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      // Per product requirement: don't persist any pictures (state emblem,
+      // watermark, etc.) on Form 7 profiles, and strip <img> tags out of the
+      // saved HTML so it doesn't reference image bytes we deliberately
+      // dropped (which would render as broken images on the profile page).
+      const htmlNoImages = html ? stripImgTags(html) : undefined;
+
       const data: Form7Subdoc = stripUndefined({
         village: nonEmpty(fields["village"]),
         taluka: nonEmpty(fields["taluka"]),
@@ -715,9 +776,12 @@ export function mapExtractionToSection(
         lastMutationNumber: nonEmpty(fields["last_mutation_number"]),
         lastMutationDate: nonEmpty(fields["last_mutation_date"]),
         pendingMutation: nonEmpty(fields["pending_mutation"]),
+        oldMutationNumbers,
+        boundaryAndSurveyMarks: nonEmpty(fields["boundary_and_survey_marks"]),
+        ownershipEntries:
+          ownershipEntries.length > 0 ? ownershipEntries : undefined,
         rawText,
-        html,
-        images,
+        html: htmlNoImages,
       });
       return { section, data };
     }

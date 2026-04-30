@@ -198,8 +198,78 @@ const FORM7: DocumentTypeDef = {
       type: "string",
       section: "Mutation",
     },
+    {
+      key: "old_mutation_numbers",
+      label: "Previous Mutation Numbers (जुने फेरफार क्र)",
+      description:
+        "List of historical mutation numbers (जुने फेरफार क्र) printed at the bottom of the form, e.g. (1) (118) (715) (742). Return as a list of numeric strings.",
+      type: "string[]",
+      section: "Mutation",
+    },
+    {
+      key: "boundary_and_survey_marks",
+      label: "Boundary & Survey Marks (सीमा आणि भुमापन चिन्ह)",
+      description:
+        "Notes about the boundary and survey marks of the plot, if printed.",
+      type: "string",
+      section: "Other Rights & Encumbrances",
+    },
   ],
-  tables: [],
+  tables: [
+    {
+      key: "ownership_entries",
+      label: "Ownership / Khata Entries",
+      section: "Ownership Details",
+      description:
+        "All rows of the main Form 7 ownership table (खाते क्र., भोगवटादाराचे नाव, क्षेत्र, आकार, पो.ख., फेरफार क्र, कुळ खंड व इतर अधिकार). Return one entry per ownership row, ignoring header / unit-label rows.",
+      columns: [
+        {
+          key: "khate_number",
+          label: "Khate No. (खाते क्र.)",
+          description: "Khata / account number for this ownership row.",
+          type: "string",
+        },
+        {
+          key: "owner_name",
+          label: "Owner Name (भोगवटादाराचे नाव)",
+          description:
+            "Full name of the owner / occupant for this khata row, exactly as printed.",
+          type: "string",
+        },
+        {
+          key: "area",
+          label: "Area (क्षेत्र)",
+          description: "Area held under this khata, with units (Hectare-Are or H.R.Sq.M.).",
+          type: "string",
+        },
+        {
+          key: "assessment",
+          label: "Assessment (आकार)",
+          description: "Land revenue assessment for this khata row.",
+          type: "string",
+        },
+        {
+          key: "collection_charges",
+          label: "Collection Charges (पो.ख.)",
+          description: "Po.Kh. / collection charges shown for this row.",
+          type: "string",
+        },
+        {
+          key: "mutation_number",
+          label: "Mutation No. (फेरफार क्र)",
+          description: "Mutation number(s) referenced for this ownership row.",
+          type: "string",
+        },
+        {
+          key: "tenant_rent_other_rights",
+          label: "Tenant / Rent / Other Rights (कुळ, खंड व इतर अधिकार)",
+          description:
+            "Combined tenant name, rent, and other-rights notes printed in the rightmost column.",
+          type: "string",
+        },
+      ],
+    },
+  ],
 };
 
 const FORM12: DocumentTypeDef = {

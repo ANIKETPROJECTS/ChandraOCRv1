@@ -165,10 +165,17 @@ const SECTIONS: SectionMeta[] = [
       nonCultivatedArea: "Non-Cultivated Area",
       tenantName: "Tenant Name",
       tenantRent: "Tenant Rent",
+      otherRights: "Other Rights",
+      encumbrances: "Encumbrances",
+      lastMutationNumber: "Last Mutation No.",
+      lastMutationDate: "Last Mutation Date",
       pendingMutation: "Pending Mutation",
+      oldMutationNumbers: "Previous Mutation Nos.",
+      boundaryAndSurveyMarks: "Boundary & Survey Marks",
       rawText: "Raw OCR Text",
     },
-    listKeys: ["ownerNames"],
+    listKeys: ["ownerNames", "oldMutationNumbers"],
+    tableKeys: [{ key: "ownershipEntries", label: "Ownership / Khata Entries" }],
   },
   {
     key: "form12",
@@ -212,9 +219,20 @@ const TRANSACTION_COLUMNS: { key: string; label: string }[] = [
   { key: "balance", label: "Balance" },
 ];
 
+const OWNERSHIP_ENTRY_COLUMNS: { key: string; label: string }[] = [
+  { key: "khateNumber", label: "Khate No." },
+  { key: "ownerName", label: "Owner Name" },
+  { key: "area", label: "Area" },
+  { key: "assessment", label: "Assessment" },
+  { key: "collectionCharges", label: "Po.Kh." },
+  { key: "mutationNumber", label: "Mutation No." },
+  { key: "tenantRentOtherRights", label: "Tenant / Rent / Other Rights" },
+];
+
 const TABLE_COLUMNS: Record<string, { key: string; label: string }[]> = {
   cropEntries: CROP_ENTRY_COLUMNS,
   transactions: TRANSACTION_COLUMNS,
+  ownershipEntries: OWNERSHIP_ENTRY_COLUMNS,
 };
 
 const apiUrl = (path: string): string => {
