@@ -1,0 +1,281 @@
+/**
+ * Profiles API
+ * ============
+ *
+ * Each user profile is identified by their phone number and lives as a single
+ * document in the `users` MongoDB collection (database `apnaapp`). A profile
+ * may have any combination of these sections, populated from document scans:
+ *
+ *   - `aadhar`   : Aadhaar Card identity details
+ *   - `passbook` : Bank passbook (account & branch) details
+ *   - `form7`    : Maharashtra 7/12 ownership register
+ *   - `form12`   : Maharashtra 7/12 crop inspection register
+ *
+ * Endpoints (mounted under `/api`):
+ *
+ *   GET    /profiles                       List every profile (summary).
+ *   POST   /profiles                       Create an empty profile.
+ *   GET    /profiles/:phone                Read a single profile (full document).
+ *   DELETE /profiles/:phone                Remove a profile.
+ *   PATCH  /profiles/:phone/:section       Replace one section's fields.
+ *   GET    /profiles/by-section/:section   List only profiles that have :section
+ *                                          populated (used by the hamburger menu).
+ *
+ * The `phone` parameter is the document's `phone` field — exactly the same
+ * convention as the existing user document already in the collection.
+ */
+import { Router, type IRouter } from "express";
+import { ObjectId, type Filter, type WithId, type Document } from "mongodb";
+import { getDb } from "../lib/mongo";
+import {
+  PROFILE_SECTIONS,
+  type ProfileSection,
+  type UserProfile,
+} from "../lib/profiles";
+
+const router: IRouter = Router();
+
+const COLLECTION = "users";
+
+/** Phone validation: digits only, 7-15 chars (covers Indian + international formats). */
+const PHONE_RE = /^[0-9]{7,15}$/;
+
+/** Type guard to convert a path segment into a known section name. */
+function asSection(value: string): ProfileSection | null {
+  return (PROFILE_SECTIONS as readonly string[]).includes(value)
+    ? (value as ProfileSection)
+    : null;
+}
+
+/** Strip MongoDB internals before sending a profile to the client. */
+function serializeProfile(doc: WithId<Document>): UserProfile & { _id: string } {
+  const { _id, ...rest } = doc;
+  return { _id: _id.toString(), ...(rest as UserProfile) };
+}
+
+/** Normalize ISO-Date-or-string `createdAt` / `updatedAt` to an ISO string. */
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+/* ------------------------------------------------------------------------- */
+/* GET /profiles — list summaries (one row per profile).                     */
+/* ------------------------------------------------------------------------- */
+router.get("/profiles", async (_req, res): Promise<void> => {
+  const col = getDb().collection(COLLECTION);
+  const docs = await col
+    .find(
+      {},
+      {
+        projection: {
+          phone: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          // Only include sub-document presence — not full payloads — to keep
+          // the list response small for the hamburger menu.
+          "aadhar.name": 1,
+          "passbook.bankName": 1,
+          "form7.village": 1,
+          "form12.village": 1,
+        },
+      },
+    )
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .toArray();
+
+  res.json({
+    profiles: docs.map((d) => ({
+      _id: d._id.toString(),
+      phone: d["phone"],
+      createdAt: d["createdAt"],
+      updatedAt: d["updatedAt"],
+      sections: {
+        aadhar: Boolean(d["aadhar"]),
+        passbook: Boolean(d["passbook"]),
+        form7: Boolean(d["form7"]),
+        form12: Boolean(d["form12"]),
+      },
+      labels: {
+        aadhar: d["aadhar"]?.["name"] ?? null,
+        passbook: d["passbook"]?.["bankName"] ?? null,
+        form7: d["form7"]?.["village"] ?? null,
+        form12: d["form12"]?.["village"] ?? null,
+      },
+    })),
+  });
+});
+
+/* ------------------------------------------------------------------------- */
+/* GET /profiles/by-section/:section — for hamburger menu sections.          */
+/* Returns only profiles where the requested section is populated.           */
+/* ------------------------------------------------------------------------- */
+router.get("/profiles/by-section/:section", async (req, res): Promise<void> => {
+  const section = asSection(req.params.section ?? "");
+  if (!section) {
+    res.status(400).json({
+      error: `Invalid section. Expected one of: ${PROFILE_SECTIONS.join(", ")}`,
+    });
+    return;
+  }
+
+  const col = getDb().collection(COLLECTION);
+  const filter: Filter<Document> = { [section]: { $exists: true } };
+  const docs = await col
+    .find(filter)
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .toArray();
+
+  res.json({
+    section,
+    profiles: docs.map((d) => serializeProfile(d)),
+  });
+});
+
+/* ------------------------------------------------------------------------- */
+/* GET /profiles/:phone — full profile document.                             */
+/* ------------------------------------------------------------------------- */
+router.get("/profiles/:phone", async (req, res): Promise<void> => {
+  const phone = req.params.phone ?? "";
+  if (!PHONE_RE.test(phone)) {
+    res.status(400).json({ error: "Invalid phone number." });
+    return;
+  }
+
+  const col = getDb().collection(COLLECTION);
+  const doc = await col.findOne({ phone });
+  if (!doc) {
+    res.status(404).json({ error: "Profile not found." });
+    return;
+  }
+
+  res.json({ profile: serializeProfile(doc) });
+});
+
+/* ------------------------------------------------------------------------- */
+/* POST /profiles — create an empty profile (just `phone`).                  */
+/* Returns 200 with the existing profile if `phone` already exists.          */
+/* ------------------------------------------------------------------------- */
+router.post("/profiles", async (req, res): Promise<void> => {
+  const phone = typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
+  if (!PHONE_RE.test(phone)) {
+    res.status(400).json({ error: "phone is required (7-15 digits)." });
+    return;
+  }
+
+  const col = getDb().collection(COLLECTION);
+  const existing = await col.findOne({ phone });
+  if (existing) {
+    res.json({ profile: serializeProfile(existing), created: false });
+    return;
+  }
+
+  const now = nowIso();
+  const result = await col.insertOne({
+    phone,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const inserted = await col.findOne({ _id: result.insertedId });
+  res.status(201).json({
+    profile: inserted ? serializeProfile(inserted) : null,
+    created: true,
+  });
+});
+
+/* ------------------------------------------------------------------------- */
+/* DELETE /profiles/:phone                                                   */
+/* ------------------------------------------------------------------------- */
+router.delete("/profiles/:phone", async (req, res): Promise<void> => {
+  const phone = req.params.phone ?? "";
+  if (!PHONE_RE.test(phone)) {
+    res.status(400).json({ error: "Invalid phone number." });
+    return;
+  }
+
+  const col = getDb().collection(COLLECTION);
+  const result = await col.deleteOne({ phone });
+  if (result.deletedCount === 0) {
+    res.status(404).json({ error: "Profile not found." });
+    return;
+  }
+  res.json({ deleted: true });
+});
+
+/* ------------------------------------------------------------------------- */
+/* PATCH /profiles/:phone/:section                                           */
+/* Body: arbitrary JSON object — replaces the section's contents.            */
+/* Creates the profile if it doesn't exist (upsert).                         */
+/* ------------------------------------------------------------------------- */
+router.patch(
+  "/profiles/:phone/:section",
+  async (req, res): Promise<void> => {
+    const phone = req.params.phone ?? "";
+    if (!PHONE_RE.test(phone)) {
+      res.status(400).json({ error: "Invalid phone number." });
+      return;
+    }
+    const section = asSection(req.params.section ?? "");
+    if (!section) {
+      res.status(400).json({
+        error: `Invalid section. Expected one of: ${PROFILE_SECTIONS.join(", ")}`,
+      });
+      return;
+    }
+
+    const data = req.body;
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      res
+        .status(400)
+        .json({ error: "Body must be a JSON object with section fields." });
+      return;
+    }
+
+    const now = nowIso();
+    const col = getDb().collection(COLLECTION);
+    await col.updateOne(
+      { phone },
+      {
+        $set: { [section]: data, updatedAt: now },
+        $setOnInsert: { phone, createdAt: now },
+      },
+      { upsert: true },
+    );
+
+    const doc = await col.findOne({ phone });
+    res.json({ profile: doc ? serializeProfile(doc) : null });
+  },
+);
+
+/* ------------------------------------------------------------------------- */
+/* DELETE /profiles/:phone/:section — remove just one section.               */
+/* ------------------------------------------------------------------------- */
+router.delete("/profiles/:phone/:section", async (req, res): Promise<void> => {
+  const phone = req.params.phone ?? "";
+  if (!PHONE_RE.test(phone)) {
+    res.status(400).json({ error: "Invalid phone number." });
+    return;
+  }
+  const section = asSection(req.params.section ?? "");
+  if (!section) {
+    res.status(400).json({
+      error: `Invalid section. Expected one of: ${PROFILE_SECTIONS.join(", ")}`,
+    });
+    return;
+  }
+
+  const col = getDb().collection(COLLECTION);
+  const result = await col.updateOne(
+    { phone },
+    { $unset: { [section]: "" }, $set: { updatedAt: nowIso() } },
+  );
+  if (result.matchedCount === 0) {
+    res.status(404).json({ error: "Profile not found." });
+    return;
+  }
+  res.json({ deleted: true });
+});
+
+// `ObjectId` import kept for future routes (e.g. lookup by _id).
+void ObjectId;
+
+export default router;

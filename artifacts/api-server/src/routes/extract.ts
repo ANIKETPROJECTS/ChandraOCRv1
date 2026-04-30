@@ -9,6 +9,9 @@ import {
   type DocumentTypeDef,
   type PresentedDocument,
 } from "../lib/document-types";
+import { getDb } from "../lib/mongo";
+import { logger } from "../lib/logger";
+import { mapExtractionToSection } from "../lib/profiles";
 
 const router: IRouter = Router();
 
@@ -27,6 +30,10 @@ interface JobMeta {
   extractRequestId: string | null;
   markerRequestId: string | null;
   createdAt: number;
+  /** Phone number of the profile to save into when extraction completes. */
+  profilePhone: string | null;
+  /** Whether we've already persisted this completed extraction (idempotency). */
+  saved: boolean;
 }
 
 const jobs = new Map<string, JobMeta>();
@@ -204,6 +211,14 @@ router.post(
       typeof req.body?.mode === "string" ? req.body.mode : DEFAULT_MODE;
     const mode = ALLOWED_MODES.has(rawMode) ? rawMode : DEFAULT_MODE;
 
+    // Optional: tie this extraction to a profile so the result is auto-saved
+    // into the matching MongoDB user document the moment it finishes.
+    const rawPhone =
+      typeof req.body?.profile_phone === "string"
+        ? req.body.profile_phone.trim()
+        : "";
+    const profilePhone = /^[0-9]{7,15}$/.test(rawPhone) ? rawPhone : null;
+
     // Fan out to both pipelines so the user gets structured fields AND the
     // original Datalab block / HTML / JSON view from a single upload.
     const [extractResult, markerResult] = await Promise.all([
@@ -229,6 +244,8 @@ router.post(
       extractRequestId: extractResult.requestId,
       markerRequestId: markerResult.requestId,
       createdAt: Date.now(),
+      profilePhone,
+      saved: false,
     });
 
     res.json({
@@ -236,6 +253,7 @@ router.post(
       document_type: docDef.id,
       document_label: docDef.label,
       mode,
+      profile_phone: profilePhone,
       pipelines: {
         extract: extractResult.requestId
           ? { status: "submitted" }
@@ -247,6 +265,64 @@ router.post(
     });
   },
 );
+
+/**
+ * Persist a completed extraction into the user's profile (idempotent).
+ * Returns a small marker so the GET /extract/:requestId response can tell the
+ * frontend whether the data was saved and into which section.
+ */
+async function persistToProfile(
+  meta: JobMeta,
+  docDef: DocumentTypeDef,
+  presented: PresentedDocument | null,
+  markdown: string | null,
+): Promise<{ saved: boolean; section: string | null; error: string | null }> {
+  if (!meta.profilePhone) {
+    return { saved: false, section: null, error: null };
+  }
+  if (meta.saved) {
+    const mapped = mapExtractionToSection(docDef.id, presented, markdown);
+    return { saved: true, section: mapped?.section ?? null, error: null };
+  }
+
+  const mapped = mapExtractionToSection(docDef.id, presented, markdown);
+  if (!mapped) {
+    return {
+      saved: false,
+      section: null,
+      error: "Could not map extraction to a profile section.",
+    };
+  }
+  if (Object.keys(mapped.data).length === 0) {
+    return {
+      saved: false,
+      section: mapped.section,
+      error: "Extraction returned no usable fields to save.",
+    };
+  }
+
+  try {
+    const now = new Date().toISOString();
+    await getDb()
+      .collection("users")
+      .updateOne(
+        { phone: meta.profilePhone },
+        {
+          $set: { [mapped.section]: mapped.data, updatedAt: now },
+          $setOnInsert: { phone: meta.profilePhone, createdAt: now },
+        },
+        { upsert: true },
+      );
+    meta.saved = true;
+    return { saved: true, section: mapped.section, error: null };
+  } catch (err) {
+    return {
+      saved: false,
+      section: mapped.section,
+      error: err instanceof Error ? err.message : "Failed to save profile.",
+    };
+  }
+}
 
 router.get("/extract/:requestId", async (req, res): Promise<void> => {
   const apiKey = getApiKey();
@@ -399,6 +475,12 @@ router.get("/extract/:requestId", async (req, res): Promise<void> => {
     }
   }
 
+  // Auto-save to MongoDB if a profile_phone was supplied at submission time.
+  const persisted = await persistToProfile(meta, docDef, structured, marker?.markdown ?? null);
+  if (persisted.error) {
+    logger.warn({ err: persisted.error, phone: meta.profilePhone }, "Profile save failed");
+  }
+
   res.json({
     status: "complete",
     document_type: docDef.id,
@@ -409,6 +491,14 @@ router.get("/extract/:requestId", async (req, res): Promise<void> => {
       ? { sections: structured.sections, empty: structured.empty }
       : null,
     marker,
+    profile: meta.profilePhone
+      ? {
+          phone: meta.profilePhone,
+          section: persisted.section,
+          saved: persisted.saved,
+          error: persisted.error,
+        }
+      : null,
     errors:
       extractClass.state === "error" || markerClass.state === "error"
         ? {

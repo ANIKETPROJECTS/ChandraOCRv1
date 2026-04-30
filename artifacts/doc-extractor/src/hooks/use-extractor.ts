@@ -23,6 +23,9 @@ export function useTypedExtractor(documentType: DocumentTypeId, documentLabel: s
   const [error, setError] = useState<string | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [requestId, setRequestId] = useState<string | null>(null);
+  // Optional phone number — when set, the server will save the extraction
+  // straight into that profile's MongoDB document.
+  const [profilePhone, setProfilePhone] = useState<string | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -120,6 +123,9 @@ export function useTypedExtractor(documentType: DocumentTypeId, documentLabel: s
     formData.append("file", file);
     formData.append("document_type", documentType);
     formData.append("mode", mode);
+    if (profilePhone) {
+      formData.append("profile_phone", profilePhone);
+    }
 
     try {
       const response = await fetch(apiUrl(`/api/extract`), {
@@ -144,7 +150,7 @@ export function useTypedExtractor(documentType: DocumentTypeId, documentLabel: s
       setError(message);
       stopTimers();
     }
-  }, [documentLabel, documentType, file, mode, poll, stopTimers]);
+  }, [documentLabel, documentType, file, mode, poll, profilePhone, stopTimers]);
 
   useEffect(() => {
     return () => stopTimers();
@@ -160,6 +166,8 @@ export function useTypedExtractor(documentType: DocumentTypeId, documentLabel: s
     error,
     elapsedTime,
     requestId,
+    profilePhone,
+    setProfilePhone,
     extract,
     reset,
   };

@@ -14,7 +14,7 @@ export async function connectMongo(): Promise<Db> {
     );
   }
 
-  const dbName = process.env["MONGODB_DB"] ?? "app";
+  const dbName = process.env["MONGODB_DB"] ?? "apnaapp";
 
   client = new MongoClient(uri, {
     serverSelectionTimeoutMS: 10_000,

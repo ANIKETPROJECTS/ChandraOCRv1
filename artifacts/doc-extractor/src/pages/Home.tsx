@@ -2,6 +2,7 @@ import { Link } from "wouter";
 import { FileText, ScrollText, IdCard, BookOpen, Clock, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useRecentExtractions } from "@/hooks/use-extractor";
+import { ProfileMenu } from "@/components/profile-menu";
 import type { DocumentTypeId } from "@/lib/types";
 
 interface DocCard {
@@ -59,14 +60,19 @@ export default function Home() {
     <div className="min-h-screen bg-background text-foreground py-12 px-4 sm:px-6 lg:px-8 font-sans">
       <div className="max-w-6xl mx-auto space-y-10">
         <header className="space-y-3">
-          <h1 className="text-4xl font-serif font-semibold tracking-tight text-primary">
-            Document Extractor
-          </h1>
-          <p className="text-muted-foreground text-lg max-w-3xl">
-            Pick a document type to upload. We extract the printed fields on the
-            server and show them in a clean parameter / value layout — no manual
-            cleanup required.
-          </p>
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-3">
+              <h1 className="text-4xl font-serif font-semibold tracking-tight text-primary">
+                Document Extractor
+              </h1>
+              <p className="text-muted-foreground text-lg max-w-3xl">
+                Pick a document type to upload. We extract the printed fields on the
+                server and show them in a clean parameter / value layout — no manual
+                cleanup required.
+              </p>
+            </div>
+            <ProfileMenu />
+          </div>
         </header>
 
         <section>

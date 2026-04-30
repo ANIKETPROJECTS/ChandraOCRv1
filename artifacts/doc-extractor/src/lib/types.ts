@@ -57,6 +57,14 @@ export interface ExtractionErrors {
   marker?: string;
 }
 
+/** Status of the auto-save into a MongoDB profile (returned with `complete`). */
+export interface ExtractionProfileResult {
+  phone: string;
+  section: string | null;
+  saved: boolean;
+  error: string | null;
+}
+
 export interface ExtractionResult {
   status: "complete" | "processing" | "error";
   document_type: DocumentTypeId;
@@ -65,6 +73,7 @@ export interface ExtractionResult {
   runtime?: number | null;
   structured?: StructuredResult | null;
   marker?: MarkerResult | null;
+  profile?: ExtractionProfileResult | null;
   errors?: ExtractionErrors;
   error?: string;
 }
@@ -76,4 +85,41 @@ export interface RecentExtraction {
   documentLabel: string;
   timestamp: number;
   status: "processing" | "complete" | "error";
+}
+
+/* ----------------------------------------------------------------------- */
+/* Profiles (server-side MongoDB user documents).                          */
+/* ----------------------------------------------------------------------- */
+
+/** Section names that map 1:1 to MongoDB sub-documents on a user profile. */
+export type ProfileSection = "aadhar" | "passbook" | "form7" | "form12";
+
+/** Maps a Home-page hamburger entry (DocumentTypeId) to its profile section. */
+export const DOC_TO_SECTION: Record<DocumentTypeId, ProfileSection> = {
+  form7: "form7",
+  form12: "form12",
+  aadhar: "aadhar",
+  bank_passbook: "passbook",
+};
+
+/** Lightweight summary for the profile picker / hamburger menu. */
+export interface ProfileSummary {
+  _id: string;
+  phone: string;
+  createdAt?: string;
+  updatedAt?: string;
+  sections: Record<ProfileSection, boolean>;
+  labels: Record<ProfileSection, string | null>;
+}
+
+/** Full profile document — sub-documents are arbitrary JSON shapes. */
+export interface ProfileDoc {
+  _id: string;
+  phone: string;
+  createdAt?: string;
+  updatedAt?: string;
+  aadhar?: Record<string, unknown>;
+  passbook?: Record<string, unknown>;
+  form7?: Record<string, unknown>;
+  form12?: Record<string, unknown>;
 }

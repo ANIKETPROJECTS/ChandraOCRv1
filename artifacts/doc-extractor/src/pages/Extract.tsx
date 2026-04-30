@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import {
   ArrowLeft,
@@ -10,7 +10,21 @@ import {
   Download,
   Copy,
   Loader2,
+  User,
+  UserPlus,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { createProfile, useProfiles } from "@/hooks/use-profiles";
+import { DOC_TO_SECTION } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -86,10 +100,24 @@ export default function Extract({ documentType }: ExtractProps) {
     result,
     error,
     elapsedTime,
+    profilePhone,
+    setProfilePhone,
     extract,
     reset,
   } = useTypedExtractor(documentType, meta.subtitle);
 
+  // Initialize the bound profile from `?profile_phone=` in the URL exactly
+  // once. Subsequent navigation between document types should keep it set.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get("profile_phone");
+    if (fromUrl && /^[0-9]{7,15}$/.test(fromUrl)) {
+      setProfilePhone(fromUrl);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [pickerOpen, setPickerOpen] = useState(false);
   const isBusy = status === "uploading" || status === "processing";
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -206,11 +234,51 @@ export default function Extract({ documentType }: ExtractProps) {
               All document types
             </Button>
           </Link>
-          <div>
-            <h1 className="text-3xl font-serif font-semibold tracking-tight text-primary">
-              {meta.title}
-            </h1>
-            <p className="text-sm text-muted-foreground">{meta.subtitle}</p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h1 className="text-3xl font-serif font-semibold tracking-tight text-primary">
+                {meta.title}
+              </h1>
+              <p className="text-sm text-muted-foreground">{meta.subtitle}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {profilePhone ? (
+                <>
+                  <Badge variant="secondary" className="gap-1.5 py-1.5 px-3" data-testid="badge-profile">
+                    <User className="w-3.5 h-3.5" />
+                    Saving to +{profilePhone}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setProfilePhone(null)}
+                    disabled={isBusy}
+                    data-testid="button-clear-profile"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPickerOpen(true)}
+                    disabled={isBusy}
+                  >
+                    Change
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPickerOpen(true)}
+                  disabled={isBusy}
+                  data-testid="button-pick-profile"
+                >
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Save to profile…
+                </Button>
+              )}
+            </div>
           </div>
           <p className="text-muted-foreground max-w-3xl">{meta.description}</p>
         </div>
@@ -339,6 +407,27 @@ export default function Extract({ documentType }: ExtractProps) {
                       </CardDescription>
                     </div>
                   </div>
+                  {result.profile?.saved && (
+                    <p
+                      className="text-xs text-green-700 dark:text-green-400 mt-2 flex items-center gap-1.5"
+                      data-testid="profile-saved"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Saved to profile +{result.profile.phone}
+                      {result.profile.section
+                        ? ` · ${result.profile.section}`
+                        : ""}
+                    </p>
+                  )}
+                  {result.profile && !result.profile.saved && result.profile.error && (
+                    <p
+                      className="text-xs text-amber-600 dark:text-amber-400 mt-2"
+                      data-testid="profile-save-error"
+                    >
+                      Could not save to profile +{result.profile.phone}:{" "}
+                      {result.profile.error}
+                    </p>
+                  )}
                   {result.errors?.extract && (
                     <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
                       Structured field extraction failed: {result.errors.extract}
@@ -538,7 +627,165 @@ export default function Extract({ documentType }: ExtractProps) {
           </div>
         </div>
       </div>
+
+      <ProfilePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        documentType={documentType}
+        currentPhone={profilePhone}
+        onSelect={(phone) => {
+          setProfilePhone(phone);
+          setPickerOpen(false);
+        }}
+      />
     </div>
+  );
+}
+
+interface ProfilePickerDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  documentType: import("@/lib/types").DocumentTypeId;
+  currentPhone: string | null;
+  onSelect: (phone: string) => void;
+}
+
+/**
+ * Dialog that lets the user either pick an existing profile or create a new
+ * one to bind the current extraction to. Re-uses the /api/profiles list so
+ * the UI here mirrors the hamburger menu on the home page.
+ */
+function ProfilePickerDialog({
+  open,
+  onOpenChange,
+  documentType,
+  currentPhone,
+  onSelect,
+}: ProfilePickerDialogProps) {
+  const { profiles, loading, refresh } = useProfiles();
+  const [phone, setPhone] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const targetSection = DOC_TO_SECTION[documentType];
+
+  // Surface profiles that already have data for this document's section first.
+  const sortedProfiles = useMemo(() => {
+    return [...profiles].sort((a, b) => {
+      const aHas = a.sections[targetSection] ? 1 : 0;
+      const bHas = b.sections[targetSection] ? 1 : 0;
+      return bHas - aHas;
+    });
+  }, [profiles, targetSection]);
+
+  const handleCreate = async () => {
+    const cleaned = phone.replace(/[^0-9]/g, "");
+    if (!/^[0-9]{7,15}$/.test(cleaned)) {
+      setErr("Phone number must be 7-15 digits.");
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await createProfile(cleaned);
+      await refresh();
+      setPhone("");
+      onSelect(cleaned);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to create profile.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Save extraction to a profile</DialogTitle>
+          <DialogDescription>
+            Pick the profile to write this {targetSection} into. The
+            extraction will be saved automatically when processing finishes.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="max-h-56 overflow-y-auto rounded-md border border-border divide-y divide-border">
+            {loading ? (
+              <div className="flex items-center justify-center py-6 text-muted-foreground text-sm">
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading…
+              </div>
+            ) : sortedProfiles.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                No profiles yet. Create one below.
+              </div>
+            ) : (
+              sortedProfiles.map((p) => {
+                const has = p.sections[targetSection];
+                const isCurrent = p.phone === currentPhone;
+                return (
+                  <button
+                    key={p._id}
+                    type="button"
+                    onClick={() => onSelect(p.phone)}
+                    className={`w-full text-left px-3 py-2 hover:bg-muted/50 flex items-center justify-between ${
+                      isCurrent ? "bg-muted/40" : ""
+                    }`}
+                    data-testid={`pick-profile-${p.phone}`}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">+{p.phone}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {has
+                          ? `Already has ${targetSection} — will be overwritten`
+                          : `No ${targetSection} yet — will be added`}
+                      </p>
+                    </div>
+                    {isCurrent && (
+                      <Badge variant="outline" className="ml-2">
+                        Current
+                      </Badge>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          <div className="rounded-md border border-border p-3 space-y-2">
+            <Label htmlFor="picker-new-phone" className="text-xs uppercase tracking-wide text-muted-foreground">
+              Or create a new profile
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="picker-new-phone"
+                type="tel"
+                inputMode="numeric"
+                placeholder="Phone (7-15 digits)"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                disabled={submitting}
+                data-testid="input-picker-phone"
+              />
+              <Button
+                onClick={handleCreate}
+                disabled={submitting || phone.length === 0}
+                data-testid="button-picker-create"
+              >
+                {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Create & use
+              </Button>
+            </div>
+            {err && <p className="text-xs text-destructive">{err}</p>}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
