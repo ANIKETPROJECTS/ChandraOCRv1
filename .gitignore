@@ -47,3 +47,6 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# PM2 ecosystem file (contains hardcoded secrets — do not commit)
+ecosystem.config.cjs
