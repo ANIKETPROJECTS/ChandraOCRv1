@@ -928,13 +928,33 @@ function SpannedTable({
             <tr key={rIdx}>
               {row.map((cell, cIdx) => {
                 if (cell === null) return null;
+                // Split on \n so each sub-row label of a folded section
+                // (e.g. जिरायत / बागायत / तरी / एकूण / ला.यो. क्षेत्र
+                // inside the अ) section) renders as its own padded line —
+                // matching the original document's vertical spacing
+                // instead of cramming them into one tight block.
+                const lines = (cell.value ?? "").split("\n");
+                const hasContent =
+                  cell.value !== undefined &&
+                  cell.value !== null &&
+                  cell.value.length > 0;
                 return (
                   <td
                     key={cIdx}
                     rowSpan={cell.rowspan > 1 ? cell.rowspan : undefined}
-                    className="border border-border p-2 align-top whitespace-pre-wrap break-words"
+                    className="border border-border px-3 py-2 align-top break-words"
                   >
-                    {cell.value && cell.value.length > 0 ? cell.value : ""}
+                    {hasContent ? (
+                      <div className="space-y-2 leading-relaxed">
+                        {lines.map((line, lIdx) => (
+                          <div key={lIdx} className="whitespace-pre-wrap">
+                            {line.length > 0 ? line : "\u00A0"}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      ""
+                    )}
                   </td>
                 );
               })}
