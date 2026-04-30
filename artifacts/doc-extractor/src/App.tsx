@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/Home";
 import Extract from "@/pages/Extract";
+import Profile from "@/pages/Profile";
 import type { DocumentTypeId } from "@/lib/types";
 
 const queryClient = new QueryClient();
@@ -17,11 +18,18 @@ function ExtractRoute({ params }: { params: { type: string } }) {
   return <Extract documentType={t} />;
 }
 
+function ProfileRoute({ params }: { params: { phone: string } }) {
+  const phone = (params.phone ?? "").trim();
+  if (!/^[0-9]{7,15}$/.test(phone)) return <NotFound />;
+  return <Profile phone={phone} />;
+}
+
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/extract/:type" component={ExtractRoute} />
+      <Route path="/profile/:phone" component={ProfileRoute} />
       <Route component={NotFound} />
     </Switch>
   );

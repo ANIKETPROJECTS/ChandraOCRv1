@@ -22,6 +22,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
 } from "lucide-react";
 import {
   Sheet,
@@ -113,6 +114,12 @@ function extractUrl(docId: DocumentTypeId, phone?: string | null): string {
   const base = import.meta.env.BASE_URL.replace(/\/$/, "");
   const qs = phone ? `?profile_phone=${encodeURIComponent(phone)}` : "";
   return `${base}/extract/${docId}${qs}`;
+}
+
+/** Build the Profile detail page URL. */
+function profileUrl(phone: string): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  return `${base}/profile/${encodeURIComponent(phone)}`;
 }
 
 export function ProfileMenu() {
@@ -280,15 +287,26 @@ export function ProfileMenu() {
                       key={p._id}
                       className="px-3 py-2 flex items-center justify-between gap-2"
                     >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">+{p.phone}</p>
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left hover:opacity-80"
+                        onClick={() => {
+                          setOpen(false);
+                          navigate(profileUrl(p.phone));
+                        }}
+                        data-testid={`open-profile-${p.phone}`}
+                      >
+                        <p className="text-sm font-medium truncate flex items-center gap-1.5">
+                          +{p.phone}
+                          <ExternalLink className="w-3 h-3 text-muted-foreground" />
+                        </p>
                         <p className="text-xs text-muted-foreground truncate">
                           {Object.entries(p.sections)
                             .filter(([, has]) => has)
                             .map(([s]) => s)
                             .join(", ") || "no sections yet"}
                         </p>
-                      </div>
+                      </button>
                       <Button
                         variant="ghost"
                         size="icon"

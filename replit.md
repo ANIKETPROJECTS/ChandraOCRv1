@@ -48,7 +48,7 @@ profile in MongoDB (`apnaapp.users`).
   - `passbook` ← Datalab passbook fields (`bankName`, `cifNumber`, `ifsc`, `branchCode`, etc.).
   - `form7`    ← Form 7 ownership register (owners, area, encumbrances, mutations).
   - `form12`   ← Form 12 (`crop_entries` table → `cropEntries` array).
-- Frontend:
-  - `src/components/profile-menu.tsx` — hamburger drawer on the home page.
-  - `src/pages/Extract.tsx` — pre-binds `?profile_phone=` from the URL, shows a
-    profile picker dialog, and surfaces the auto-save status after completion.
+- Frontend routes (wouter):
+  - `/`                    Home with hamburger drawer (`src/components/profile-menu.tsx`).
+  - `/extract/:type`       Upload + view structured + Datalab block view; pre-binds `?profile_phone=` for auto-save.
+  - `/profile/:phone`      Profile detail page (`src/pages/Profile.tsx`) — every saved section in one place, with re-upload and per-section delete.
