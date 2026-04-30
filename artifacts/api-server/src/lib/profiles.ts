@@ -57,26 +57,49 @@ export function documentTypeToSection(documentType: string): ProfileSection | nu
 export interface AadharSubdoc {
   name?: string;
   aadhaarNumber?: string;
+  vid?: string;
   dateOfBirth?: string;
   gender?: string;
+  fathersOrHusbandsName?: string;
   address?: string;
+  pincode?: string;
+  state?: string;
   mobileNumber?: string;
+  issueDate?: string;
   photoBase64?: string;
   photoMimeType?: string;
   rawText?: string;
 }
 
+export interface PassbookTransaction {
+  date?: string;
+  particulars?: string;
+  chequeRef?: string;
+  withdrawal?: string;
+  deposit?: string;
+  balance?: string;
+}
+
 export interface PassbookSubdoc {
   bankName?: string;
+  branchName?: string;
+  branchAddress?: string;
+  ifsc?: string;
+  micr?: string;
   accountHolderName?: string;
+  jointHolders?: string[];
+  nomineeName?: string;
+  nomineeRelationship?: string;
+  address?: string;
+  mobileNumber?: string;
+  email?: string;
   cifNumber?: string;
   accountNumber?: string;
   accountType?: string;
-  ifsc?: string;
-  micr?: string;
-  branchName?: string;
   branchCode?: string;
   accountOpeningDate?: string;
+  currentBalance?: string;
+  transactions?: PassbookTransaction[];
   rawText?: string;
 }
 
@@ -208,10 +231,15 @@ export function mapExtractionToSection(
       const data: AadharSubdoc = stripUndefined({
         name: nonEmpty(fields["full_name"]),
         aadhaarNumber: nonEmpty(fields["aadhaar_number"]),
+        vid: nonEmpty(fields["vid"]),
         dateOfBirth: nonEmpty(fields["date_of_birth"]),
         gender: nonEmpty(fields["gender"]),
+        fathersOrHusbandsName: nonEmpty(fields["fathers_or_husbands_name"]),
         address: nonEmpty(fields["address"]),
+        pincode: nonEmpty(fields["pincode"]),
+        state: nonEmpty(fields["state"]),
         mobileNumber: nonEmpty(fields["mobile_number"]),
+        issueDate: nonEmpty(fields["issue_date"]),
         rawText,
       });
       return { section, data };
@@ -225,17 +253,55 @@ export function mapExtractionToSection(
       const branchCodeFromIfsc =
         ifsc && /^[A-Z]{4}0\d{6}$/.test(ifsc) ? ifsc.slice(6) : undefined;
 
+      // Joint holders may come back as a CSV string (the flattenFields helper
+      // joins string[] values), so split them back out into an array.
+      const jointHoldersCsv = nonEmpty(fields["joint_holders"]);
+      const jointHolders = jointHoldersCsv
+        ? jointHoldersCsv.split(/\s*,\s*/).filter(Boolean)
+        : undefined;
+
+      // Pull the optional Transactions ledger from the document tables, the
+      // same way Form 12's crop_entries are pulled.
+      const txnRows =
+        presented?.sections
+          .flatMap((s) => s.tables)
+          .find((t) => t.key === "transactions")?.rows ?? [];
+
+      const transactions = txnRows
+        .map((row) => {
+          const v = row.values as Record<string, string>;
+          const entry = stripUndefined({
+            date: nonEmpty(v["date"]),
+            particulars: nonEmpty(v["particulars"]),
+            chequeRef: nonEmpty(v["cheque_ref"]),
+            withdrawal: nonEmpty(v["withdrawal"]),
+            deposit: nonEmpty(v["deposit"]),
+            balance: nonEmpty(v["balance"]),
+          });
+          return Object.keys(entry).length > 0 ? entry : null;
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
       const data: PassbookSubdoc = stripUndefined({
         bankName: nonEmpty(fields["bank_name"]),
+        branchName: nonEmpty(fields["branch_name"]),
+        branchAddress: nonEmpty(fields["branch_address"]),
+        ifsc,
+        micr: nonEmpty(fields["micr_code"]),
         accountHolderName: nonEmpty(fields["account_holder_name"]),
+        jointHolders,
+        nomineeName: nonEmpty(fields["nominee_name"]),
+        nomineeRelationship: nonEmpty(fields["nominee_relationship"]),
+        address: nonEmpty(fields["address"]),
+        mobileNumber: nonEmpty(fields["mobile_number"]),
+        email: nonEmpty(fields["email"]),
         cifNumber: nonEmpty(fields["customer_id"]),
         accountNumber: nonEmpty(fields["account_number"]),
         accountType: nonEmpty(fields["account_type"]),
-        ifsc,
-        micr: nonEmpty(fields["micr_code"]),
-        branchName: nonEmpty(fields["branch_name"]),
         branchCode: branchCodeFromIfsc,
         accountOpeningDate: nonEmpty(fields["opening_date"]),
+        currentBalance: nonEmpty(fields["current_balance"]),
+        transactions: transactions.length > 0 ? transactions : undefined,
         rawText,
       });
       return { section, data };

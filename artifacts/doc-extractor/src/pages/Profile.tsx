@@ -87,10 +87,15 @@ const SECTIONS: SectionMeta[] = [
     fieldLabels: {
       name: "Name",
       aadhaarNumber: "Aadhaar Number",
+      vid: "Virtual ID (VID)",
       dateOfBirth: "Date of Birth",
       gender: "Gender",
+      fathersOrHusbandsName: "Father's / Husband's Name",
       address: "Address",
+      pincode: "PIN Code",
+      state: "State",
       mobileNumber: "Mobile Number",
+      issueDate: "Issue Date",
       photoBase64: "Photo (base64)",
       photoMimeType: "Photo Format",
       rawText: "Raw OCR Text",
@@ -105,17 +110,27 @@ const SECTIONS: SectionMeta[] = [
     accent: "text-violet-700 bg-violet-50 border-violet-200",
     fieldLabels: {
       bankName: "Bank Name",
+      branchName: "Branch Name",
+      branchAddress: "Branch Address",
+      ifsc: "IFSC",
+      micr: "MICR",
       accountHolderName: "Account Holder",
+      jointHolders: "Joint Holders",
+      nomineeName: "Nominee Name",
+      nomineeRelationship: "Nominee Relationship",
+      address: "Customer Address",
+      mobileNumber: "Mobile Number",
+      email: "Email",
       cifNumber: "CIF Number",
       accountNumber: "Account Number",
       accountType: "Account Type",
-      ifsc: "IFSC",
-      micr: "MICR",
-      branchName: "Branch Name",
       branchCode: "Branch Code",
       accountOpeningDate: "Opening Date",
+      currentBalance: "Current Balance",
       rawText: "Raw OCR Text",
     },
+    listKeys: ["jointHolders"],
+    tableKeys: [{ key: "transactions", label: "Transactions" }],
   },
   {
     key: "form7",
@@ -179,6 +194,20 @@ const CROP_ENTRY_COLUMNS: { key: string; label: string }[] = [
   { key: "area", label: "Area" },
   { key: "remarks", label: "Remarks" },
 ];
+
+const TRANSACTION_COLUMNS: { key: string; label: string }[] = [
+  { key: "date", label: "Date" },
+  { key: "particulars", label: "Particulars" },
+  { key: "chequeRef", label: "Cheque / Ref" },
+  { key: "withdrawal", label: "Withdrawal (Dr)" },
+  { key: "deposit", label: "Deposit (Cr)" },
+  { key: "balance", label: "Balance" },
+];
+
+const TABLE_COLUMNS: Record<string, { key: string; label: string }[]> = {
+  cropEntries: CROP_ENTRY_COLUMNS,
+  transactions: TRANSACTION_COLUMNS,
+};
 
 const apiUrl = (path: string): string => {
   const base = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -539,7 +568,7 @@ function SectionBody({ section, data }: SectionBodyProps) {
       {(section.tableKeys ?? []).map((t) => {
         const rows = data[t.key];
         if (!Array.isArray(rows) || rows.length === 0) return null;
-        const columns = t.key === "cropEntries" ? CROP_ENTRY_COLUMNS : inferColumns(rows);
+        const columns = TABLE_COLUMNS[t.key] ?? inferColumns(rows);
         return (
           <div key={t.key} className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
