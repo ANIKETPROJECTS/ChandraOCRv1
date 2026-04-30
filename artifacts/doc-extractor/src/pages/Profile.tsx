@@ -684,10 +684,19 @@ function SectionBody({ section, data }: SectionBodyProps) {
                   <div className="text-[11px] font-semibold uppercase tracking-wider mb-2 text-orange-700 dark:text-orange-300">
                     Table
                   </div>
-                  <div
-                    className="prose prose-sm dark:prose-invert max-w-none [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-border [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:p-2 [&_td]:align-top text-foreground"
-                    dangerouslySetInnerHTML={{ __html: tbl.html }}
-                  />
+                  {section.key === "form7" ? (
+                    // Form 7's source table is laid out with vertically-
+                    // merged cells (e.g. the "अ) लागवड योग्य क्षेत्र"
+                    // section spans many sub-rows in a single tall cell).
+                    // Re-create that visual merging by computing rowspans
+                    // from the captured rows[] matrix.
+                    <SpannedTable headers={tbl.headers} rows={tbl.rows} />
+                  ) : (
+                    <div
+                      className="prose prose-sm dark:prose-invert max-w-none [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-border [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:p-2 [&_td]:align-top text-foreground"
+                      dangerouslySetInnerHTML={{ __html: tbl.html }}
+                    />
+                  )}
                 </div>
               ),
             )}
@@ -805,4 +814,95 @@ function inferColumns(rows: unknown[]): { key: string; label: string }[] {
     }
   }
   return Array.from(keys).map((k) => ({ key: k, label: humanize(k) }));
+}
+
+/**
+ * Render a `{headers, rows}` matrix where consecutive empty cells in a
+ * column visually merge into the non-empty cell above them (rowspan). This
+ * mimics the original Form 7 paper layout where a single tall cell like
+ * "अ) लागवड योग्य क्षेत्र" (with sub-rows for जिरायत / बागायत / तरी /
+ * एकूण / ला.यो. क्षेत्र) spans many physical rows in one merged cell.
+ */
+function SpannedTable({
+  headers,
+  rows,
+}: {
+  headers: string[];
+  rows: string[][];
+}) {
+  const colCount = Math.max(
+    headers.length,
+    ...rows.map((r) => r.length),
+    1,
+  );
+
+  // Build a grid of {value, rowspan} | null. `null` means "this position
+  // has been merged into an earlier rowspan'd cell — skip when rendering".
+  type Cell = { value: string; rowspan: number };
+  const grid: (Cell | null)[][] = rows.map((r) => {
+    const padded: (Cell | null)[] = r.map((c) => ({
+      value: c ?? "",
+      rowspan: 1,
+    }));
+    while (padded.length < colCount) padded.push({ value: "", rowspan: 1 });
+    return padded;
+  });
+
+  // For each column, walk top → bottom. If we hit an empty cell directly
+  // under a non-empty anchor (or another empty under that anchor), bump
+  // the anchor's rowspan and null-out the empty cell so it isn't rendered.
+  for (let c = 0; c < colCount; c++) {
+    let anchorRow = -1;
+    for (let r = 0; r < grid.length; r++) {
+      const cell = grid[r][c];
+      if (cell === null) continue;
+      const isEmpty = !cell.value || cell.value.trim() === "";
+      if (!isEmpty) {
+        anchorRow = r;
+      } else if (anchorRow >= 0) {
+        const anchor = grid[anchorRow][c];
+        if (anchor) anchor.rowspan += 1;
+        grid[r][c] = null;
+      }
+    }
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse border border-border text-sm text-foreground">
+        {headers.length > 0 && (
+          <thead>
+            <tr className="bg-muted">
+              {headers.map((h, i) => (
+                <th
+                  key={i}
+                  className="border border-border p-2 text-left font-semibold align-top whitespace-pre-wrap"
+                >
+                  {h || ""}
+                </th>
+              ))}
+            </tr>
+          </thead>
+        )}
+        <tbody>
+          {grid.map((row, rIdx) => (
+            <tr key={rIdx}>
+              {row.map((cell, cIdx) => {
+                if (cell === null) return null;
+                return (
+                  <td
+                    key={cIdx}
+                    rowSpan={cell.rowspan > 1 ? cell.rowspan : undefined}
+                    className="border border-border p-2 align-top whitespace-pre-wrap break-words"
+                  >
+                    {cell.value && cell.value.length > 0 ? cell.value : ""}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
