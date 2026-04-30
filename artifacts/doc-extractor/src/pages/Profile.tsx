@@ -827,6 +827,36 @@ function isSectionAnchorLabel(text: string): boolean {
 }
 
 /**
+ * Split a sub-row line like "जिरायत ०.१९.४०" into a label/value pair so
+ * the rendered cell can show them in two columns (label flush-left,
+ * numeric value flush-right) — the way the original document is laid out.
+ *
+ * The trailing token is treated as the value if it looks numeric: any
+ * combination of Devanagari digits (०-९), ASCII digits (0-9), dots, slashes,
+ * commas, parentheses or dashes — this catches "०.१९.४०", "१.३७", "-",
+ * "(१२३४)" etc. without splitting genuine label-only rows like "एकूण",
+ * "(लागवड अयोग्य)" or "अ) लागवड योग्य क्षेत्र".
+ */
+function splitLabelValue(line: string): { label: string; value: string | null } {
+  const trimmed = (line ?? "").trim();
+  if (!trimmed) return { label: "", value: null };
+
+  // Find the last whitespace-separated token. If it matches the numeric
+  // pattern AND there's something to its left, treat it as the value.
+  const lastSpace = trimmed.search(/\s+\S+$/);
+  if (lastSpace < 0) return { label: trimmed, value: null };
+
+  const label = trimmed.slice(0, lastSpace).trim();
+  const value = trimmed.slice(lastSpace).trim();
+  if (!label) return { label: trimmed, value: null };
+
+  if (/^[\u0966-\u096F0-9.,/\-()]+$/.test(value)) {
+    return { label, value };
+  }
+  return { label: trimmed, value: null };
+}
+
+/**
  * Render a `{headers, rows}` matrix where consecutive empty cells in a
  * column visually merge into the non-empty cell above them (rowspan). This
  * mimics the original Form 7 paper layout where a single tall cell like
@@ -930,14 +960,17 @@ function SpannedTable({
                 if (cell === null) return null;
                 // Split on \n so each sub-row label of a folded section
                 // (e.g. जिरायत / बागायत / तरी / एकूण / ला.यो. क्षेत्र
-                // inside the अ) section) renders as its own padded line —
-                // matching the original document's vertical spacing
-                // instead of cramming them into one tight block.
-                const lines = (cell.value ?? "").split("\n");
+                // inside the अ) section) renders as its own padded line.
+                // Each line is then split into a label/value pair so that
+                // the values line up in their own column on the right —
+                // matching the original document's two-column layout
+                // ("जिरायत   ०.१९.४०", "बागायत   -", …) rather than
+                // appearing as a single concatenated line.
                 const hasContent =
                   cell.value !== undefined &&
                   cell.value !== null &&
                   cell.value.length > 0;
+                const lines = (cell.value ?? "").split("\n");
                 return (
                   <td
                     key={cIdx}
@@ -945,12 +978,34 @@ function SpannedTable({
                     className="border border-border px-3 py-2 align-top break-words"
                   >
                     {hasContent ? (
-                      <div className="space-y-2 leading-relaxed">
-                        {lines.map((line, lIdx) => (
-                          <div key={lIdx} className="whitespace-pre-wrap">
-                            {line.length > 0 ? line : "\u00A0"}
-                          </div>
-                        ))}
+                      <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 leading-relaxed">
+                        {lines.flatMap((line, lIdx) => {
+                          const { label, value } = splitLabelValue(line);
+                          if (value === null) {
+                            return [
+                              <div
+                                key={`${lIdx}-full`}
+                                className="col-span-2 whitespace-pre-wrap"
+                              >
+                                {label.length > 0 ? label : "\u00A0"}
+                              </div>,
+                            ];
+                          }
+                          return [
+                            <div
+                              key={`${lIdx}-label`}
+                              className="whitespace-pre-wrap"
+                            >
+                              {label}
+                            </div>,
+                            <div
+                              key={`${lIdx}-value`}
+                              className="whitespace-pre-wrap text-right tabular-nums"
+                            >
+                              {value}
+                            </div>,
+                          ];
+                        })}
                       </div>
                     ) : (
                       ""
