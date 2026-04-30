@@ -475,11 +475,25 @@ function SectionBody({ section, data }: SectionBodyProps) {
   const tableKeys = new Set((section.tableKeys ?? []).map((t) => t.key));
   const listKeys = new Set(section.listKeys ?? []);
 
-  // Plain key/value rows for everything except known table/list/internal keys.
+  // Pull photo fields out so we can render them as an actual <img> tag,
+  // and skip showing the raw base64 / mime type rows in the field table.
+  const photoBase64 =
+    typeof data.photoBase64 === "string" && data.photoBase64.trim().length > 0
+      ? (data.photoBase64 as string)
+      : null;
+  const photoMime =
+    typeof data.photoMimeType === "string" && data.photoMimeType.trim().length > 0
+      ? (data.photoMimeType as string)
+      : "image/jpeg";
+
+  // Plain key/value rows for everything except known table/list/internal keys
+  // and the photo fields (which get their own renderer above the table).
   const flatEntries = Object.entries(data).filter(
     ([key, value]) =>
       !tableKeys.has(key) &&
       key !== "_id" &&
+      key !== "photoBase64" &&
+      key !== "photoMimeType" &&
       value !== null &&
       value !== undefined &&
       (typeof value !== "string" || value.trim().length > 0),
@@ -487,6 +501,22 @@ function SectionBody({ section, data }: SectionBodyProps) {
 
   return (
     <div className="space-y-5">
+      {photoBase64 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Photo
+          </p>
+          <div className="rounded-md border border-border bg-muted/20 p-3 inline-block">
+            <img
+              src={`data:${photoMime};base64,${photoBase64}`}
+              alt="Aadhaar photo"
+              className="max-h-56 w-auto rounded-sm object-contain"
+              data-testid="img-aadhaar-photo"
+            />
+          </div>
+        </div>
+      )}
+
       {flatEntries.length > 0 && (
         <div className="rounded-md border border-border overflow-hidden">
           <Table>
