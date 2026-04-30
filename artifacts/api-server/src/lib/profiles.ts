@@ -126,6 +126,25 @@ export interface Form7OwnershipEntry {
   tenantRentOtherRights?: string;
 }
 
+/**
+ * A Table block lifted verbatim from Datalab Marker's structured JSON output.
+ * `rows` includes every cell (including blanks and category sub-rows like
+ * "जिरायत", "बागायत", "एकूण", etc.) so no detail is lost. `html` is the
+ * Marker-rendered table HTML for faithful re-rendering on the profile page.
+ */
+export interface Form7Table {
+  /** "/page/0/Table/8" — useful for ordering when multiple tables are present. */
+  blockId?: string;
+  /** Page index the table came from. */
+  page?: number;
+  /** Column header texts pulled from `<thead>`. May be empty. */
+  headers: string[];
+  /** Every body row as `string[]`, in document order. */
+  rows: string[][];
+  /** Raw `<table>…</table>` HTML emitted by Marker. */
+  html: string;
+}
+
 /** Form 7 (Maharashtra 7/12 Ownership Register). Stores extractor fields as-is + rawText. */
 export interface Form7Subdoc {
   village?: string;
@@ -153,6 +172,10 @@ export interface Form7Subdoc {
   oldMutationNumbers?: string[];
   boundaryAndSurveyMarks?: string;
   ownershipEntries?: Form7OwnershipEntry[];
+  /** Every Table block from the source document, captured verbatim. */
+  tables?: Form7Table[];
+  /** Free-form text blocks captured verbatim from the source document. */
+  textBlocks?: string[];
   rawText?: string;
   html?: string;
 }
@@ -297,6 +320,116 @@ function stripImgTags(html: string): string {
       /<div\b[^>]*class=["'][^"']*\bimg-(?:description|alt)\b[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
       "",
     );
+}
+
+/**
+ * Parse a `<table>...</table>` HTML fragment into a `{headers, rows}` matrix.
+ * Every cell's text is preserved (including blanks), so nothing is lost
+ * relative to what Marker rendered.
+ */
+function parseHtmlTable(html: string): { headers: string[]; rows: string[][] } {
+  const headers: string[] = [];
+  const rows: string[][] = [];
+
+  const theadMatch = html.match(/<thead\b[^>]*>([\s\S]*?)<\/thead>/i);
+  if (theadMatch) {
+    const headerTr = theadMatch[1].match(/<tr\b[^>]*>([\s\S]*?)<\/tr>/i);
+    if (headerTr) {
+      const cellRe = /<t[hd]\b[^>]*>([\s\S]*?)<\/t[hd]>/gi;
+      let m: RegExpExecArray | null;
+      while ((m = cellRe.exec(headerTr[1])) !== null) {
+        headers.push(stripHtml(m[1]));
+      }
+    }
+  }
+
+  const bodyHtml = html.replace(/<thead\b[\s\S]*?<\/thead>/gi, "");
+  const trRe = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+  let trMatch: RegExpExecArray | null;
+  while ((trMatch = trRe.exec(bodyHtml)) !== null) {
+    const cellRe = /<t[hd]\b[^>]*>([\s\S]*?)<\/t[hd]>/gi;
+    const cells: string[] = [];
+    let cellMatch: RegExpExecArray | null;
+    while ((cellMatch = cellRe.exec(trMatch[1])) !== null) {
+      cells.push(stripHtml(cellMatch[1]));
+    }
+    if (cells.length > 0) rows.push(cells);
+  }
+
+  return { headers, rows };
+}
+
+/**
+ * Walk Marker's structured block tree and return every Table block, parsed
+ * into `{headers, rows, html}`. Used for documents (like Form 7) where the
+ * source table contains rich category sub-rows we don't want to lose.
+ */
+function extractTablesFromMarkerJson(json: unknown): Form7Table[] {
+  const tables: Form7Table[] = [];
+  if (!json || typeof json !== "object") return tables;
+
+  function walk(node: unknown): void {
+    if (!node || typeof node !== "object") return;
+    const n = node as Record<string, unknown>;
+    const blockType = n["block_type"];
+    if (typeof blockType === "string" && /^table$/i.test(blockType)) {
+      const rawHtml = typeof n["html"] === "string" ? (n["html"] as string) : "";
+      if (rawHtml) {
+        const cleanedHtml = stripImgTags(rawHtml).trim();
+        const { headers, rows } = parseHtmlTable(cleanedHtml);
+        tables.push({
+          blockId: typeof n["id"] === "string" ? (n["id"] as string) : undefined,
+          page: typeof n["page"] === "number" ? (n["page"] as number) : undefined,
+          headers,
+          rows,
+          html: cleanedHtml,
+        });
+      }
+    }
+    const children = n["children"];
+    if (Array.isArray(children)) {
+      for (const c of children) walk(c);
+    }
+  }
+
+  walk(json);
+  return tables;
+}
+
+/**
+ * Walk Marker's block tree and collect every free-form text block (paragraphs,
+ * section headers, list items, etc.) as plain strings. This catches any
+ * detail that doesn't fall inside a Table or Picture (e.g. the "जुने फेरफार
+ * क्र : (१) (११८) …" footer text on Form 7).
+ */
+function extractTextBlocksFromMarkerJson(json: unknown): string[] {
+  const out: string[] = [];
+  if (!json || typeof json !== "object") return out;
+
+  const seen = new Set<string>();
+
+  function walk(node: unknown): void {
+    if (!node || typeof node !== "object") return;
+    const n = node as Record<string, unknown>;
+    const blockType = n["block_type"];
+    if (typeof blockType === "string" && /^(text|sectionheader|listitem|caption)$/i.test(blockType)) {
+      const html = typeof n["html"] === "string" ? (n["html"] as string) : "";
+      if (html) {
+        const text = stripHtml(html);
+        if (text && !seen.has(text)) {
+          seen.add(text);
+          out.push(text);
+        }
+      }
+    }
+    const children = n["children"];
+    if (Array.isArray(children)) {
+      for (const c of children) walk(c);
+    }
+  }
+
+  walk(json);
+  return out;
 }
 
 const PORTRAIT_RE = /portrait|photograph|\bphoto\b|cardholder|face\b|head\s*shot|headshot|passport\s*photo|user\s*image|profile\s*image/i;
@@ -753,6 +886,13 @@ export function mapExtractionToSection(
       // dropped (which would render as broken images on the profile page).
       const htmlNoImages = html ? stripImgTags(html) : undefined;
 
+      // Capture every Table block from the source document verbatim so the
+      // many sub-rows (cultivated area / जिरायत / बागायत / तरी / एकूण /
+      // पोटखराब क्षेत्र / वर्ग अ / वर्ग ब / पो.स.क्षेत्र / etc.) and any
+      // detail not covered by the structured fields are preserved.
+      const tablesFromBlocks = extractTablesFromMarkerJson(marker?.json);
+      const textBlocks = extractTextBlocksFromMarkerJson(marker?.json);
+
       const data: Form7Subdoc = stripUndefined({
         village: nonEmpty(fields["village"]),
         taluka: nonEmpty(fields["taluka"]),
@@ -780,6 +920,8 @@ export function mapExtractionToSection(
         boundaryAndSurveyMarks: nonEmpty(fields["boundary_and_survey_marks"]),
         ownershipEntries:
           ownershipEntries.length > 0 ? ownershipEntries : undefined,
+        tables: tablesFromBlocks.length > 0 ? tablesFromBlocks : undefined,
+        textBlocks: textBlocks.length > 0 ? textBlocks : undefined,
         rawText,
         html: htmlNoImages,
       });

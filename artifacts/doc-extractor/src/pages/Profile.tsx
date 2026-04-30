@@ -65,6 +65,15 @@ interface ProfileImage {
   base64: string;
 }
 
+/** A Table block captured verbatim from the source document (Form 7). */
+interface RawTable {
+  blockId?: string;
+  page?: number;
+  headers: string[];
+  rows: string[][];
+  html: string;
+}
+
 interface ProfileProps {
   phone: string;
 }
@@ -570,6 +579,8 @@ function SectionBody({ section, data }: SectionBodyProps) {
     "photoMimeType",
     "images",
     "html",
+    "tables",
+    "textBlocks",
   ]);
   const flatEntries = Object.entries(data).filter(
     ([key, value]) =>
@@ -656,6 +667,70 @@ function SectionBody({ section, data }: SectionBodyProps) {
           </div>
         );
       })}
+
+      {Array.isArray((data as Record<string, unknown>).tables) &&
+        ((data as Record<string, unknown>).tables as RawTable[]).length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Source document tables (every cell preserved)
+            </p>
+            {((data as Record<string, unknown>).tables as RawTable[]).map(
+              (tbl, idx) => (
+                <div
+                  key={tbl.blockId ?? idx}
+                  className="rounded-md border border-border overflow-x-auto"
+                  data-testid={`raw-table-${idx}`}
+                >
+                  <Table>
+                    {tbl.headers && tbl.headers.length > 0 && (
+                      <TableHeader>
+                        <TableRow className="bg-muted/40">
+                          {tbl.headers.map((h, i) => (
+                            <TableHead key={i} className="text-xs">
+                              {h || "—"}
+                            </TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                    )}
+                    <TableBody>
+                      {tbl.rows.map((row, rIdx) => (
+                        <TableRow key={rIdx}>
+                          {row.map((cell, cIdx) => (
+                            <TableCell
+                              key={cIdx}
+                              className="text-sm whitespace-pre-wrap align-top"
+                            >
+                              {cell && cell.length > 0 ? cell : "—"}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ),
+            )}
+          </div>
+        )}
+
+      {Array.isArray((data as Record<string, unknown>).textBlocks) &&
+        ((data as Record<string, unknown>).textBlocks as string[]).length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Other text from document
+            </p>
+            <ul className="rounded-md border border-border bg-muted/10 p-3 list-disc pl-6 space-y-1 text-sm">
+              {((data as Record<string, unknown>).textBlocks as string[]).map(
+                (t, i) => (
+                  <li key={i} className="whitespace-pre-wrap break-words">
+                    {t}
+                  </li>
+                ),
+              )}
+            </ul>
+          </div>
+        )}
 
       {images.length > 0 && (
         <div className="space-y-2">
