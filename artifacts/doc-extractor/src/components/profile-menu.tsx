@@ -5,9 +5,12 @@
  * The hamburger menu shown on the Home page. Lists the four document
  * sub-document sections (Form 7, Form 12, Aadhaar, Bank Passbook) and, under
  * each section, the user profiles in MongoDB that already have data for that
- * section. Selecting a profile entry navigates to the Extract page with the
- * `profile_phone` query string set, so the next extraction will be saved
- * straight into that profile.
+ * section.
+ *
+ * Clicking a profile entry opens the dedicated profile detail page
+ * (`/profile/:phone`) so the user can view all saved fields. From there they
+ * can re-upload any section. The "+ Upload new ... (no profile)" link still
+ * jumps straight to the Extract page for a fresh, unbound upload.
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -241,14 +244,16 @@ export function ProfileMenu() {
                             type="button"
                             onClick={() => {
                               setOpen(false);
-                              navigate(extractUrl(entry.id, p.phone));
+                              navigate(profileUrl(p.phone));
                             }}
                             className="w-full text-left px-3 py-2 hover:bg-muted/60 flex items-center justify-between gap-2"
                             data-testid={`profile-${p.phone}-${entry.section}`}
+                            title="View profile details"
                           >
                             <div className="min-w-0">
-                              <p className="text-sm font-medium truncate">
+                              <p className="text-sm font-medium truncate flex items-center gap-1.5">
                                 +{p.phone}
+                                <ExternalLink className="w-3 h-3 text-muted-foreground" />
                               </p>
                               {p.labels[entry.section] && (
                                 <p className="text-xs text-muted-foreground truncate">
