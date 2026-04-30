@@ -817,6 +817,16 @@ function inferColumns(rows: unknown[]): { key: string; label: string }[] {
 }
 
 /**
+ * True if `text` looks like a Form 7 section header — a single Devanagari
+ * letter followed by ")" at the start (e.g. "अ) लागवड योग्य क्षेत्र",
+ * "ब) पोटखराब क्षेत्र"). Used to fold each section's sub-row labels into
+ * a single tall multi-line cell on the rendered table.
+ */
+function isSectionAnchorLabel(text: string): boolean {
+  return /^\s*[\u0900-\u097F]\s*\)/.test(text ?? "");
+}
+
+/**
  * Render a `{headers, rows}` matrix where consecutive empty cells in a
  * column visually merge into the non-empty cell above them (rowspan). This
  * mimics the original Form 7 paper layout where a single tall cell like
@@ -863,6 +873,35 @@ function SpannedTable({
         const anchor = grid[anchorRow][c];
         if (anchor) anchor.rowspan += 1;
         grid[r][c] = null;
+      }
+    }
+  }
+
+  // Extra pass for the leftmost (label) column: a "section header" row like
+  // "अ) लागवड योग्य क्षेत्र" or "ब) पोटखराब क्षेत्र" should swallow all of
+  // its sub-row labels (जिरायत, बागायत, तरी, एकूण, ला.यो. क्षेत्र, …) into
+  // a single tall multi-line cell, matching the original document where each
+  // labeled section is one merged cell. A section anchor is any row whose
+  // column-0 text starts with a single Devanagari letter followed by ")".
+  if (colCount > 0) {
+    let sectionAnchorRow = -1;
+    for (let r = 0; r < grid.length; r++) {
+      const cell = grid[r][0];
+      if (cell === null) continue;
+      if (isSectionAnchorLabel(cell.value)) {
+        sectionAnchorRow = r;
+      } else if (sectionAnchorRow >= 0) {
+        const anchor = grid[sectionAnchorRow][0];
+        if (anchor) {
+          const sub = (cell.value ?? "").trim();
+          if (sub.length > 0) {
+            anchor.value = anchor.value
+              ? `${anchor.value}\n${sub}`
+              : sub;
+          }
+          anchor.rowspan += 1;
+        }
+        grid[r][0] = null;
       }
     }
   }
