@@ -668,11 +668,32 @@ const BANK_PASSBOOK: DocumentTypeDef = {
 
 const FORM8A: DocumentTypeDef = {
   id: "form8a",
-  label: "Form 8A (Maharashtra Holding Register — खाते उतारा / 8-अ)",
+  label: "Form 8A (Maharashtra Holding Register — गाव नमुना आठ-अ / धारण जमिनींची नोंदवही)",
   description:
-    "Maharashtra 8-अ Khata Utara — combined holdings register for one khate (account). Lists every survey number / sub-division held by the same khatedar (owner) along with its area and land-revenue assessment.",
-  sections: ["Header Details", "Owner & Khata", "Holdings Summary"],
+    "Maharashtra Village Form 8A — धारण जमिनींची नोंदवही (आसामीवार खतावणी - जमाबंदी पत्रक). One row per survey-number holding under a khate, with assessment, damage on inherited land, local cesses (Zilla Parishad and Gram Panchayat) and totals.",
+  sections: [
+    "Header Details",
+    "Khatedar (Account Holder)",
+    "Holdings Table",
+    "Totals",
+  ],
   fields: [
+    {
+      key: "year",
+      label: "Year (वर्ष)",
+      description:
+        "Reporting / revenue year printed in the top-left of the form (e.g. 2016-15, 2023-24).",
+      type: "string",
+      section: "Header Details",
+    },
+    {
+      key: "report_date",
+      label: "Report Date",
+      description:
+        "Print/issue date shown in the top-right of the header (typically a Gregorian date like 12/20/2016).",
+      type: "string",
+      section: "Header Details",
+    },
     {
       key: "village",
       label: "Village (गाव)",
@@ -697,92 +718,160 @@ const FORM8A: DocumentTypeDef = {
     {
       key: "khate_number",
       label: "Khate Number (खाते क्रमांक)",
-      description: "Khata / land-revenue account number this 8A belongs to.",
+      description:
+        "Khata / land-revenue account number printed in the first column (e.g. 'खाते क्र.159' → '159'). Return only the digits / number string, without the 'खाते क्र.' prefix.",
       type: "string",
-      section: "Owner & Khata",
+      section: "Khatedar (Account Holder)",
     },
     {
-      key: "owner_names",
+      key: "account_type",
+      label: "Account Type (खात्याचा प्रकार)",
+      description:
+        "Type of khata as printed in column 1 — for example 'अविभक्त कुटूंब खाते' (joint family account), 'वैयक्तिक खाते' (individual account). Return exactly what is printed.",
+      type: "string",
+      section: "Khatedar (Account Holder)",
+    },
+    {
+      key: "khatedar_names",
       label: "Khatedar Name(s) (खातेदाराचे नाव)",
       description:
-        "Full name(s) of the khatedar (account holder). Return as a list of names exactly as printed.",
+        "Full name(s) of the khatedar / account holder(s), if printed. Return as a list of names exactly as printed. Many 8A pages do not list names — leave empty if absent.",
       type: "string[]",
-      section: "Owner & Khata",
+      section: "Khatedar (Account Holder)",
     },
     {
-      key: "owner_address",
+      key: "khatedar_address",
       label: "Khatedar Address (खातेदाराचा पत्ता)",
       description: "Postal address of the khatedar, if printed.",
       type: "string",
-      section: "Owner & Khata",
+      section: "Khatedar (Account Holder)",
     },
     {
       key: "total_area",
       label: "Total Area (एकूण क्षेत्र)",
       description:
-        "Total cultivable area held under this khata across all survey numbers, with units (Hectare-Are or H.R.Sq.M.).",
+        "Total area held under this khata, summed across all survey numbers, as printed in the bold 'एकूण' totals row of column 'क्षेत्र' (with units, typically H.R.Sq.M like '2.06.00').",
       type: "string",
-      section: "Holdings Summary",
+      section: "Totals",
     },
     {
-      key: "total_assessment",
-      label: "Total Assessment (एकूण आकार)",
-      description: "Total land-revenue assessment payable for the khata.",
+      key: "total_assessment_or_judi",
+      label: "Total Assessment / Judi (एकूण आकारणी किंवा जुडी)",
+      description:
+        "Sum of column 'आकारणी किंवा जुडी' (Assessment or Judi rent) shown in the bold totals row.",
       type: "string",
-      section: "Holdings Summary",
+      section: "Totals",
     },
     {
-      key: "non_agricultural_area",
-      label: "Non-Agricultural Area (अकृषिक क्षेत्र)",
-      description: "Portion of the holding converted to non-agricultural use, if printed.",
+      key: "total_damage_on_inherited_land",
+      label: "Total Damage on Inherited Land (एकूण दुमाला जमिनीवरील नुकसान)",
+      description:
+        "Sum of column 'दुमाला जमिनीवरील नुकसान' (damage / loss on inherited / दुमाला land) shown in the totals row.",
       type: "string",
-      section: "Holdings Summary",
+      section: "Totals",
     },
     {
-      key: "potkharab_area",
-      label: "Potkharab Area (पोटखराब क्षेत्र)",
-      description: "Total uncultivable (pot-kharab) area across the khata, if printed.",
+      key: "total_zp_local_cess",
+      label: "Total Zilla Parishad Local Cess (एकूण जि.प. स्थानिक उपकर)",
+      description:
+        "Sum of the Zilla Parishad (जि.प.) sub-column under स्थानिक उपकर, in the totals row.",
       type: "string",
-      section: "Holdings Summary",
+      section: "Totals",
+    },
+    {
+      key: "total_gp_local_cess",
+      label: "Total Gram Panchayat Local Cess (एकूण ग्रा.प. स्थानिक उपकर)",
+      description:
+        "Sum of the Gram Panchayat (ग्रा.प.) sub-column under स्थानिक उपकर, in the totals row.",
+      type: "string",
+      section: "Totals",
+    },
+    {
+      key: "total_recovery_amount",
+      label: "Total Recovery Amount (एकूण वसुलीसाठी)",
+      description:
+        "Total of the 'वसुलीसाठी' (for recovery) group — i.e. column (७) in the totals row, if printed separately from grand total.",
+      type: "string",
+      section: "Totals",
+    },
+    {
+      key: "grand_total",
+      label: "Grand Total (एकूण)",
+      description:
+        "Final 'एकूण' grand total amount printed in the right-most totals cell.",
+      type: "string",
+      section: "Totals",
     },
   ],
   tables: [
     {
       key: "holdings",
-      label: "Survey Number Holdings",
-      section: "Holdings Summary",
+      label: "Holdings (धारण जमिनींची नोंदवही)",
+      section: "Holdings Table",
       description:
-        "Each row of the खाते उतारा showing one survey number / sub-division held under this khata. Skip header / total / unit-label rows.",
+        "Each non-total row of the धारण जमिनींची नोंदवही table — one row per survey-number holding held under this khate. SKIP the bold 'एकूण' totals row entirely (it is captured in the top-level totals fields instead). Preserve every printed cell verbatim, including units and any embedded notes (e.g. 'भूमिअभिलेख निर्णयात्').",
       columns: [
         {
-          key: "survey_number",
-          label: "Survey No. / Sub-Div (भूमापन क्र / उपविभाग)",
-          description: "Survey number with sub-division for this holding row.",
-          type: "string",
-        },
-        {
-          key: "area",
-          label: "Area (क्षेत्र)",
+          key: "village_form_6_entry",
+          label: "Village Form 6 Entry — Khate Ref (गाव नमुना सहा मधील नोंद)",
           description:
-            "Cultivable area of this survey number, with units (Hectare-Are or H.R.Sq.M.).",
+            "Column (१) — the entry from Village Form 6 for this row. Typically contains the खाते क्रमांक and account type, e.g. 'खाते क्र.159 अविभक्त कुटूंब खाते'. Capture the full printed text.",
           type: "string",
         },
         {
-          key: "assessment",
-          label: "Assessment (आकार)",
-          description: "Land-revenue assessment for this survey number row.",
+          key: "survey_number_with_subdivision",
+          label: "Survey No. / Sub-Division (भूमापन क्रमांक व उपविभाग क्रमांक)",
+          description:
+            "Column (२) — survey number with sub-division, plus any inline note printed in the same cell (e.g. '77/3 भूमिअभिलेख निर्णयात्').",
           type: "string",
         },
         {
-          key: "potkharab",
-          label: "Potkharab (पोटखराब)",
-          description: "Pot-kharab / uncultivable area for this row, if printed.",
+          key: "area_or_extent",
+          label: "Area / Extent (क्षेत्र)",
+          description:
+            "Column (३) — the area / extent value as printed in the क्षेत्र column for this row (may be a small marker like '३.', a count, or a numeric area).",
           type: "string",
         },
         {
-          key: "remarks",
-          label: "Remarks (शेरा)",
-          description: "Any remark printed against this holding row.",
+          key: "assessment_or_judi",
+          label: "Assessment / Judi (आकारणी किंवा जुडी)",
+          description:
+            "Column (४) — assessment or judi (rent) for this survey-number row, as printed (typically H.R.Sq.M format like '2.06.00').",
+          type: "string",
+        },
+        {
+          key: "damage_on_inherited_land",
+          label: "Damage on Inherited Land (दुमाला जमिनीवरील नुकसान)",
+          description:
+            "Column (५) — damage / loss recorded against दुमाला (inherited) land for this row.",
+          type: "string",
+        },
+        {
+          key: "zp_local_cess",
+          label: "ZP Local Cess (जि.प. स्थानिक उपकर)",
+          description:
+            "Column (६अ) — Zilla Parishad share of the local cess for this row.",
+          type: "string",
+        },
+        {
+          key: "gp_local_cess",
+          label: "GP Local Cess (ग्रा.प. स्थानिक उपकर)",
+          description:
+            "Column (६ब) — Gram Panchayat share of the local cess for this row.",
+          type: "string",
+        },
+        {
+          key: "recovery_total",
+          label: "Recovery Total (वसुलीसाठी एकूण)",
+          description:
+            "Column (७) — sub-total of the 'वसुलीसाठी' (for recovery) group for this row, if printed.",
+          type: "string",
+        },
+        {
+          key: "row_total",
+          label: "Row Total (एकूण)",
+          description:
+            "Right-most 'एकूण' grand-total cell for this row.",
           type: "string",
         },
       ],

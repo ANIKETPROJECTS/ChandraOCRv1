@@ -218,30 +218,56 @@ export interface Form12Subdoc {
   images?: ProfileImage[];
 }
 
-/** Form 8A (Maharashtra Khata Utara — combined holdings register for one khate). */
+/**
+ * Form 8A (Maharashtra Village Form 8A — धारण जमिनींची नोंदवही).
+ *
+ * One row per survey-number holding under a khate. The Marathi header layout
+ * is preserved here — every printed column is captured.
+ */
 export interface Form8aHolding {
-  surveyNumber?: string;
-  area?: string;
-  assessment?: string;
-  potkharab?: string;
-  remarks?: string;
+  /** Column (१) गाव नमुना सहा मधील नोंद — full khata reference text. */
+  villageForm6Entry?: string;
+  /** Column (२) भूमापन क्रमांक व उपविभाग क्रमांक. */
+  surveyNumberWithSubdivision?: string;
+  /** Column (३) क्षेत्र — area / extent value as printed. */
+  areaOrExtent?: string;
+  /** Column (४) आकारणी किंवा जुडी. */
+  assessmentOrJudi?: string;
+  /** Column (५) दुमाला जमिनीवरील नुकसान. */
+  damageOnInheritedLand?: string;
+  /** Column (६अ) जि.प. local cess. */
+  zpLocalCess?: string;
+  /** Column (६ब) ग्रा.प. local cess. */
+  gpLocalCess?: string;
+  /** Column (७) वसुलीसाठी sub-total. */
+  recoveryTotal?: string;
+  /** Right-most एकूण row total. */
+  rowTotal?: string;
 }
 
 export interface Form8aSubdoc {
+  year?: string;
+  reportDate?: string;
   village?: string;
   taluka?: string;
   district?: string;
   khateNumber?: string;
-  ownerNames?: string[];
-  ownerAddress?: string;
+  accountType?: string;
+  khatedarNames?: string[];
+  khatedarAddress?: string;
+  /** Bold "एकूण" totals row, broken out per column. */
   totalArea?: string;
-  totalAssessment?: string;
-  nonAgriculturalArea?: string;
-  potkharabArea?: string;
+  totalAssessmentOrJudi?: string;
+  totalDamageOnInheritedLand?: string;
+  totalZpLocalCess?: string;
+  totalGpLocalCess?: string;
+  totalRecoveryAmount?: string;
+  grandTotal?: string;
+  /** One entry per survey-number holding row (totals row excluded). */
   holdings?: Form8aHolding[];
   /** Every Table block from the source document, captured verbatim. */
   tables?: Form7Table[];
-  /** Free-form text blocks captured verbatim from the source document. */
+  /** Free-form text blocks (e.g. the सूचना disclaimer) captured verbatim. */
   textBlocks?: string[];
   rawText?: string;
   html?: string;
@@ -1033,12 +1059,15 @@ export function mapExtractionToSection(
     }
 
     case "form8a": {
-      const ownerNamesCsv = nonEmpty(fields["owner_names"]);
-      const ownerNames = ownerNamesCsv
-        ? ownerNamesCsv.split(/\s*,\s*/).filter(Boolean)
+      const khatedarNamesCsv = nonEmpty(fields["khatedar_names"]);
+      const khatedarNames = khatedarNamesCsv
+        ? khatedarNamesCsv.split(/\s*,\s*/).filter(Boolean)
         : undefined;
 
-      // Pull every row of the holdings table.
+      // Pull every row of the holdings table. The structured extractor is
+      // instructed to skip the bold "एकूण" totals row, but defend against
+      // the AI accidentally including it by filtering rows whose first cell
+      // begins with "एकूण".
       const holdingsRows =
         presented?.sections
           .flatMap((s) => s.tables)
@@ -1048,18 +1077,29 @@ export function mapExtractionToSection(
         .map((row) => {
           const v = row.values as Record<string, string>;
           const entry = stripUndefined({
-            surveyNumber: nonEmpty(v["survey_number"]),
-            area: nonEmpty(v["area"]),
-            assessment: nonEmpty(v["assessment"]),
-            potkharab: nonEmpty(v["potkharab"]),
-            remarks: nonEmpty(v["remarks"]),
+            villageForm6Entry: nonEmpty(v["village_form_6_entry"]),
+            surveyNumberWithSubdivision: nonEmpty(
+              v["survey_number_with_subdivision"],
+            ),
+            areaOrExtent: nonEmpty(v["area_or_extent"]),
+            assessmentOrJudi: nonEmpty(v["assessment_or_judi"]),
+            damageOnInheritedLand: nonEmpty(v["damage_on_inherited_land"]),
+            zpLocalCess: nonEmpty(v["zp_local_cess"]),
+            gpLocalCess: nonEmpty(v["gp_local_cess"]),
+            recoveryTotal: nonEmpty(v["recovery_total"]),
+            rowTotal: nonEmpty(v["row_total"]),
           });
-          return Object.keys(entry).length > 0 ? entry : null;
+          if (Object.keys(entry).length === 0) return null;
+          // Drop a stray totals row if the model leaked it through.
+          if ((entry.villageForm6Entry ?? "").trim().startsWith("एकूण")) {
+            return null;
+          }
+          return entry;
         })
         .filter((x): x is NonNullable<typeof x> => x !== null);
 
       // Capture every Table block from the source document verbatim so the
-      // full khata-utara layout (sub-rows, totals, blank cells, etc.) is
+      // full 8A layout (header rows, totals row, embedded notes, etc.) is
       // preserved alongside the structured holdings array.
       const tablesFromBlocks = extractTablesFromMarkerJson(marker?.json);
       const textBlocks = extractTextBlocksFromMarkerJson(marker?.json);
@@ -1070,16 +1110,24 @@ export function mapExtractionToSection(
       const htmlNoImages = html ? stripImgTags(html) : undefined;
 
       const data: Form8aSubdoc = stripUndefined({
+        year: nonEmpty(fields["year"]),
+        reportDate: nonEmpty(fields["report_date"]),
         village: nonEmpty(fields["village"]),
         taluka: nonEmpty(fields["taluka"]),
         district: nonEmpty(fields["district"]),
         khateNumber: nonEmpty(fields["khate_number"]),
-        ownerNames,
-        ownerAddress: nonEmpty(fields["owner_address"]),
+        accountType: nonEmpty(fields["account_type"]),
+        khatedarNames,
+        khatedarAddress: nonEmpty(fields["khatedar_address"]),
         totalArea: nonEmpty(fields["total_area"]),
-        totalAssessment: nonEmpty(fields["total_assessment"]),
-        nonAgriculturalArea: nonEmpty(fields["non_agricultural_area"]),
-        potkharabArea: nonEmpty(fields["potkharab_area"]),
+        totalAssessmentOrJudi: nonEmpty(fields["total_assessment_or_judi"]),
+        totalDamageOnInheritedLand: nonEmpty(
+          fields["total_damage_on_inherited_land"],
+        ),
+        totalZpLocalCess: nonEmpty(fields["total_zp_local_cess"]),
+        totalGpLocalCess: nonEmpty(fields["total_gp_local_cess"]),
+        totalRecoveryAmount: nonEmpty(fields["total_recovery_amount"]),
+        grandTotal: nonEmpty(fields["grand_total"]),
         holdings: holdings.length > 0 ? holdings : undefined,
         tables: tablesFromBlocks.length > 0 ? tablesFromBlocks : undefined,
         textBlocks: textBlocks.length > 0 ? textBlocks : undefined,
