@@ -200,6 +200,16 @@ export interface Form12Subdoc {
     area?: string;
     remarks?: string;
   }>;
+  /**
+   * Every Table block lifted verbatim from the source document. Reuses the
+   * Form7Table shape because it's a generic `{headers, rows, html}` capture.
+   * On Form 12 this preserves the full crop-inspection table layout
+   * (merged headers like पिकाखालील क्षेत्राचा तपशील, sub-headers, blank
+   * cells, sub-row crops like भात / गवत, etc.).
+   */
+  tables?: Form7Table[];
+  /** Free-form text blocks captured verbatim from the source document. */
+  textBlocks?: string[];
   rawText?: string;
   html?: string;
   images?: ProfileImage[];
@@ -954,6 +964,20 @@ export function mapExtractionToSection(
         })
         .filter((x): x is NonNullable<typeof x> => x !== null);
 
+      // Capture every Table block from the source document verbatim so the
+      // full crop-inspection layout (merged headers like
+      // पिकाखालील क्षेत्राचा तपशील / मिश्र पिकाखालील क्षेत्र /
+      // निर्भळ पिकाखालील क्षेत्र / लागवडीसाठी उपलब्ध असलेली जमीन,
+      // their sub-headers, blank columns, and per-year sub-rows
+      // भात / गवत etc.) is preserved — not just the flattened cropEntries.
+      const tablesFromBlocks = extractTablesFromMarkerJson(marker?.json);
+      const textBlocks = extractTextBlocksFromMarkerJson(marker?.json);
+
+      // Strip <img> tags from the saved HTML for visual consistency with
+      // Form 7 (and so any image-bytes we don't persist don't render as
+      // broken-image placeholders).
+      const htmlNoImages = html ? stripImgTags(html) : undefined;
+
       const data: Form12Subdoc = stripUndefined({
         village: nonEmpty(fields["village"]),
         taluka: nonEmpty(fields["taluka"]),
@@ -961,8 +985,10 @@ export function mapExtractionToSection(
         surveyNumber: nonEmpty(fields["survey_number"]),
         khateNumber: nonEmpty(fields["khate_number"]),
         cropEntries: cropEntries.length > 0 ? cropEntries : undefined,
+        tables: tablesFromBlocks.length > 0 ? tablesFromBlocks : undefined,
+        textBlocks: textBlocks.length > 0 ? textBlocks : undefined,
         rawText,
-        html,
+        html: htmlNoImages,
         images,
       });
       return { section, data };
