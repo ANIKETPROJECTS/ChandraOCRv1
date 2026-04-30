@@ -296,12 +296,23 @@ function captionsFromMarkerBlocks(json: unknown): CaptionedImage[] {
 
   const SRC_RE = /<img[^>]+src=["']([^"']+)["']/i;
 
-  function imgsIn(html: unknown): string[] {
+  // Pull every <img> in the html and capture its alt text alongside the src.
+  // Datalab Marker labels each picture's content via the `alt` attribute
+  // (e.g. alt="Portrait photo", alt="Aadhaar logo"), which is the most
+  // reliable per-image label available — more reliable than scanning for
+  // sibling Caption blocks.
+  function imgsIn(html: unknown): Array<{ src: string; alt: string }> {
     if (typeof html !== "string") return [];
-    const all: string[] = [];
-    const re = /<img[^>]+src=["']([^"']+)["']/gi;
+    const all: Array<{ src: string; alt: string }> = [];
+    const re = /<img\b[^>]*>/gi;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(html)) !== null) all.push(m[1]);
+    while ((m = re.exec(html)) !== null) {
+      const tag = m[0];
+      const srcMatch = tag.match(/\bsrc=["']([^"']+)["']/i);
+      if (!srcMatch) continue;
+      const altMatch = tag.match(/\balt=["']([^"']*)["']/i);
+      all.push({ src: srcMatch[1], alt: altMatch ? altMatch[1] : "" });
+    }
     return all;
   }
 
@@ -330,7 +341,7 @@ function captionsFromMarkerBlocks(json: unknown): CaptionedImage[] {
     // Pair pictures with their nearest caption within the current sibling list.
     if (isPicture(n)) {
       const myIdx = parentSiblings.indexOf(n);
-      const filenames = imgsIn(n["html"]);
+      const imgs = imgsIn(n["html"]);
 
       // Look for a caption inside this picture's own children too.
       const childCaption = (Array.isArray(n["children"]) ? n["children"] : [])
@@ -353,9 +364,12 @@ function captionsFromMarkerBlocks(json: unknown): CaptionedImage[] {
         }
       }
 
-      const caption = `${childCaption} ${siblingCaptions.join(" ")}`.trim();
-      for (const fn of filenames) {
-        out.push({ filename: fn, caption });
+      const ambientCaption = `${childCaption} ${siblingCaptions.join(" ")}`.trim();
+      for (const img of imgs) {
+        // Prepend the per-image alt text (Datalab's authoritative label) so
+        // it dominates any ambient caption text picked up from siblings.
+        const caption = `${img.alt} ${ambientCaption}`.trim();
+        out.push({ filename: img.src, caption });
       }
     }
 
@@ -374,6 +388,30 @@ function captionsFromMarkerBlocks(json: unknown): CaptionedImage[] {
   // Extra pass: if Picture blocks were rendered as a standalone <img> elsewhere
   // in the html (no Picture wrapper), scan all blocks for img + caption pairs.
   void SRC_RE;
+  return out;
+}
+
+/**
+ * Pull captions straight from `<img alt="…" src="…">` tags anywhere in the
+ * given HTML. This is Datalab Marker's most explicit per-image label and
+ * should be trusted over any ambient text-window search.
+ */
+function captionsFromImgAlts(
+  html: string | null | undefined,
+): CaptionedImage[] {
+  if (!html) return [];
+  const out: CaptionedImage[] = [];
+  const re = /<img\b[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const tag = m[0];
+    const srcMatch = tag.match(/\bsrc=["']([^"']+)["']/i);
+    if (!srcMatch) continue;
+    const altMatch = tag.match(/\balt=["']([^"']*)["']/i);
+    const alt = altMatch ? altMatch[1] : "";
+    if (!alt) continue;
+    out.push({ filename: srcMatch[1], caption: alt });
+  }
   return out;
 }
 
@@ -445,6 +483,7 @@ function pickPortrait(
     markdown,
     html,
   );
+  const fromAlts = captionsFromImgAlts(html);
 
   const captionByFile = new Map<string, string>();
   for (const c of fromText) {
@@ -452,6 +491,10 @@ function pickPortrait(
   }
   // Block-derived captions take precedence over windowed text matches.
   for (const c of fromBlocks) {
+    if (c.caption) captionByFile.set(c.filename, c.caption);
+  }
+  // <img alt="…"> labels (Datalab's per-image authoritative tag) win outright.
+  for (const c of fromAlts) {
     if (c.caption) captionByFile.set(c.filename, c.caption);
   }
 
@@ -488,9 +531,11 @@ export function debugPickPortraitDecision(
   if (!images || images.length === 0) return [];
   const fromBlocks = captionsFromMarkerBlocks(markerJson);
   const fromText = captionsFromText(images.map((i) => i.name), markdown, html);
+  const fromAlts = captionsFromImgAlts(html);
   const captionByFile = new Map<string, string>();
   for (const c of fromText) if (c.caption) captionByFile.set(c.filename, c.caption);
   for (const c of fromBlocks) if (c.caption) captionByFile.set(c.filename, c.caption);
+  for (const c of fromAlts) if (c.caption) captionByFile.set(c.filename, c.caption);
 
   return images.map((img) => {
     const caption = captionByFile.get(img.name) ?? "";
