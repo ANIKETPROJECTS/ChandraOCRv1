@@ -389,12 +389,18 @@ function CreateProfileDialog({
   onOpenChange,
   onCreated,
 }: CreateProfileDialogProps) {
+  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const { toast } = useToast();
 
   const submit = async () => {
+    const trimmedName = name.trim();
+    if (trimmedName.length === 0 || trimmedName.length > 120) {
+      setErr("Name is required (1-120 characters).");
+      return;
+    }
     const cleaned = phone.replace(/[^0-9]/g, "");
     if (!/^[0-9]{7,15}$/.test(cleaned)) {
       setErr("Phone number must be 7-15 digits.");
@@ -403,12 +409,13 @@ function CreateProfileDialog({
     setSubmitting(true);
     setErr(null);
     try {
-      await createProfile(cleaned);
+      await createProfile(cleaned, trimmedName);
       toast({
         title: "Profile ready",
         description: `Profile +${cleaned} is available.`,
       });
       setPhone("");
+      setName("");
       onOpenChange(false);
       onCreated();
     } catch (e) {
@@ -428,22 +435,37 @@ function CreateProfileDialog({
             for the number you enter, it will be reused.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-2">
-          <Label htmlFor="new-profile-phone">Phone number</Label>
-          <Input
-            id="new-profile-phone"
-            type="tel"
-            inputMode="numeric"
-            placeholder="e.g. 9876543210"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            disabled={submitting}
-            data-testid="input-new-profile-phone"
-          />
-          <p className="text-xs text-muted-foreground">
-            7-15 digits. Don't include spaces, dashes, or country code prefixes
-            like "+".
-          </p>
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="new-profile-name">Name</Label>
+            <Input
+              id="new-profile-name"
+              type="text"
+              placeholder="e.g. Aniket Sanjay Rane"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={submitting}
+              maxLength={120}
+              data-testid="input-new-profile-name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="new-profile-phone">Phone number</Label>
+            <Input
+              id="new-profile-phone"
+              type="tel"
+              inputMode="numeric"
+              placeholder="e.g. 9876543210"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              disabled={submitting}
+              data-testid="input-new-profile-phone"
+            />
+            <p className="text-xs text-muted-foreground">
+              7-15 digits. Don't include spaces, dashes, or country code prefixes
+              like "+".
+            </p>
+          </div>
           {err && <p className="text-xs text-destructive">{err}</p>}
         </div>
         <DialogFooter>

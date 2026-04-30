@@ -663,6 +663,7 @@ function ProfilePickerDialog({
   onSelect,
 }: ProfilePickerDialogProps) {
   const { profiles, loading, refresh } = useProfiles();
+  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -678,6 +679,11 @@ function ProfilePickerDialog({
   }, [profiles, targetSection]);
 
   const handleCreate = async () => {
+    const trimmedName = name.trim();
+    if (trimmedName.length === 0 || trimmedName.length > 120) {
+      setErr("Name is required (1-120 characters).");
+      return;
+    }
     const cleaned = phone.replace(/[^0-9]/g, "");
     if (!/^[0-9]{7,15}$/.test(cleaned)) {
       setErr("Phone number must be 7-15 digits.");
@@ -686,9 +692,10 @@ function ProfilePickerDialog({
     setSubmitting(true);
     setErr(null);
     try {
-      await createProfile(cleaned);
+      await createProfile(cleaned, trimmedName);
       await refresh();
       setPhone("");
+      setName("");
       onSelect(cleaned);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to create profile.");
@@ -751,29 +758,45 @@ function ProfilePickerDialog({
             )}
           </div>
 
-          <div className="rounded-md border border-border p-3 space-y-2">
-            <Label htmlFor="picker-new-phone" className="text-xs uppercase tracking-wide text-muted-foreground">
+          <div className="rounded-md border border-border p-3 space-y-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
               Or create a new profile
-            </Label>
-            <div className="flex gap-2">
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="picker-new-name" className="text-xs">Name</Label>
               <Input
-                id="picker-new-phone"
-                type="tel"
-                inputMode="numeric"
-                placeholder="Phone (7-15 digits)"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                id="picker-new-name"
+                type="text"
+                placeholder="e.g. Aniket Sanjay Rane"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 disabled={submitting}
-                data-testid="input-picker-phone"
+                maxLength={120}
+                data-testid="input-picker-name"
               />
-              <Button
-                onClick={handleCreate}
-                disabled={submitting || phone.length === 0}
-                data-testid="button-picker-create"
-              >
-                {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Create & use
-              </Button>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="picker-new-phone" className="text-xs">Phone</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="picker-new-phone"
+                  type="tel"
+                  inputMode="numeric"
+                  placeholder="Phone (7-15 digits)"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  disabled={submitting}
+                  data-testid="input-picker-phone"
+                />
+                <Button
+                  onClick={handleCreate}
+                  disabled={submitting || phone.length === 0 || name.trim().length === 0}
+                  data-testid="button-picker-create"
+                >
+                  {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Create & use
+                </Button>
+              </div>
             </div>
             {err && <p className="text-xs text-destructive">{err}</p>}
           </div>
