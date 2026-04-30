@@ -264,21 +264,71 @@ function normalizeImages(
   return out.length > 0 ? out : undefined;
 }
 
+/** Strip HTML tags and collapse whitespace. */
+function stripHtml(s: string): string {
+  return s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+}
+
 /**
- * Pick the most likely "portrait" picture from an Aadhaar's images.
- * Heuristic: largest base64 payload wins — the State Emblem and Aadhaar logo
- * are always tiny, the actual face photo is the dominant picture on the card.
+ * Find the human-readable caption Datalab Marker emitted near an image.
+ *
+ * Marker pairs each picture with a short Caption block ("Portrait photo",
+ * "QR code", "Aadhaar logo", "Signature", …). Both the HTML and the markdown
+ * place that caption immediately before or after the image reference, so we
+ * scan a small window in both directions and concatenate the visible text.
+ */
+function findCaptionForImage(
+  text: string | null | undefined,
+  filename: string,
+): string {
+  if (!text) return "";
+  const idx = text.indexOf(filename);
+  if (idx < 0) return "";
+  const before = text.slice(Math.max(0, idx - 400), idx);
+  const after = text.slice(idx + filename.length, idx + filename.length + 600);
+  return `${stripHtml(after)} ${stripHtml(before)}`;
+}
+
+/**
+ * Pick the actual face photo from an Aadhaar's images.
+ *
+ * Aadhaar PDFs typically contain four pictures: the State Emblem, the UIDAI
+ * Aadhaar logo, the QR code, and the cardholder's portrait. The QR code is
+ * usually the biggest by raw byte count, so a "biggest wins" heuristic
+ * actually picks the wrong one.
+ *
+ * Datalab Marker labels each picture with a short Caption block in both the
+ * HTML and the markdown (e.g. "Portrait photo", "QR code"). We score each
+ * image by its caption — strong positive for portrait/photo keywords, strong
+ * negative for QR/logo/signature/emblem keywords — then fall back to file
+ * size as a tiebreaker.
  */
 function pickPortrait(
   images: ProfileImage[] | undefined,
+  markdown: string | null | undefined,
+  html: string | null | undefined,
 ): { base64: string; mimeType: string } | undefined {
   if (!images || images.length === 0) return undefined;
-  let best: ProfileImage | null = null;
+
+  const PORTRAIT_RE = /\b(portrait|photo|photograph|cardholder|face|person)\b/i;
+  const NON_PORTRAIT_RE =
+    /\b(qr\s*code|qrcode|barcode|logo|signature|emblem|ashoka|state\s*emblem|hologram)\b/i;
+
+  let best: { img: ProfileImage; score: number } | null = null;
   for (const img of images) {
-    if (!best || img.base64.length > best.base64.length) best = img;
+    const caption = `${findCaptionForImage(markdown, img.name)} ${findCaptionForImage(html, img.name)}`;
+    let score = 0;
+    if (PORTRAIT_RE.test(caption)) score += 1000;
+    if (NON_PORTRAIT_RE.test(caption)) score -= 1000;
+    // Tiebreaker for unlabeled images: prefer a moderately-sized image. QR
+    // codes are extremely dense PNGs (often the largest payload), so we use
+    // log of size instead of raw size.
+    score += Math.log10(img.base64.length + 1);
+    if (!best || score > best.score) best = { img, score };
   }
+
   if (!best) return undefined;
-  return { base64: best.base64, mimeType: best.mimeType };
+  return { base64: best.img.base64, mimeType: best.img.mimeType };
 }
 
 /**
@@ -310,7 +360,7 @@ export function mapExtractionToSection(
       // photo and a fixed list of identity fields — no raw OCR text, no full
       // HTML rendering, and no other Datalab-extracted images (logo,
       // signature, …).
-      const portrait = pickPortrait(images);
+      const portrait = pickPortrait(images, markdown, marker?.html);
       const data: AadharSubdoc = stripUndefined({
         name: nonEmpty(fields["full_name"]),
         aadhaarNumber: nonEmpty(fields["aadhaar_number"]),
