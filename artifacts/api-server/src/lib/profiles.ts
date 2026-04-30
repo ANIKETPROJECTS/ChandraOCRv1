@@ -228,6 +228,8 @@ export interface MappedExtraction {
 export interface MarkerInput {
   html: string | null;
   images: Record<string, string> | null;
+  /** Marker's structured block tree (Document → Page → PictureGroup → …). */
+  json?: unknown;
 }
 
 /** Guess the MIME type from a filename extension. */
@@ -269,24 +271,147 @@ function stripHtml(s: string): string {
   return s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
 }
 
+const PORTRAIT_RE = /portrait|photograph|\bphoto\b|cardholder|face\b|head\s*shot|headshot|passport\s*photo|user\s*image|profile\s*image/i;
+const NON_PORTRAIT_RE =
+  /qr[\s-]*code|qrcode|barcode|\blogo\b|signature|emblem|ashoka|hologram|watermark|stamp|seal/i;
+
+interface CaptionedImage {
+  filename: string;
+  caption: string;
+}
+
 /**
- * Find the human-readable caption Datalab Marker emitted near an image.
+ * Walk Datalab Marker's structured block tree and return every image filename
+ * paired with the caption text that lives in the same parent group.
  *
- * Marker pairs each picture with a short Caption block ("Portrait photo",
- * "QR code", "Aadhaar logo", "Signature", …). Both the HTML and the markdown
- * place that caption immediately before or after the image reference, so we
- * scan a small window in both directions and concatenate the visible text.
+ * Marker emits each picture inside a `PictureGroup` whose children are
+ * typically `[Picture, Caption]`. The Picture's html contains the `<img src>`,
+ * the Caption's html contains the human-readable label ("Portrait photo",
+ * "QR code", …). Walking the tree gives us the *exact* pairing and avoids the
+ * ambiguity of a windowed text search.
  */
-function findCaptionForImage(
-  text: string | null | undefined,
-  filename: string,
-): string {
-  if (!text) return "";
-  const idx = text.indexOf(filename);
-  if (idx < 0) return "";
-  const before = text.slice(Math.max(0, idx - 400), idx);
-  const after = text.slice(idx + filename.length, idx + filename.length + 600);
-  return `${stripHtml(after)} ${stripHtml(before)}`;
+function captionsFromMarkerBlocks(json: unknown): CaptionedImage[] {
+  const out: CaptionedImage[] = [];
+  if (!json || typeof json !== "object") return out;
+
+  const SRC_RE = /<img[^>]+src=["']([^"']+)["']/i;
+
+  function imgsIn(html: unknown): string[] {
+    if (typeof html !== "string") return [];
+    const all: string[] = [];
+    const re = /<img[^>]+src=["']([^"']+)["']/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null) all.push(m[1]);
+    return all;
+  }
+
+  function textOf(node: Record<string, unknown> | null): string {
+    if (!node) return "";
+    const html = node["html"];
+    return typeof html === "string" ? stripHtml(html) : "";
+  }
+
+  function isCaption(node: Record<string, unknown> | null): boolean {
+    if (!node) return false;
+    const t = node["block_type"];
+    return typeof t === "string" && /caption|sectionheader|text/i.test(t);
+  }
+
+  function isPicture(node: Record<string, unknown> | null): boolean {
+    if (!node) return false;
+    const t = node["block_type"];
+    return typeof t === "string" && /picture|figure/i.test(t);
+  }
+
+  function walk(node: unknown, parentSiblings: unknown[]): void {
+    if (!node || typeof node !== "object") return;
+    const n = node as Record<string, unknown>;
+
+    // Pair pictures with their nearest caption within the current sibling list.
+    if (isPicture(n)) {
+      const myIdx = parentSiblings.indexOf(n);
+      const filenames = imgsIn(n["html"]);
+
+      // Look for a caption inside this picture's own children too.
+      const childCaption = (Array.isArray(n["children"]) ? n["children"] : [])
+        .map((c) => textOf(c as Record<string, unknown>))
+        .filter(Boolean)
+        .join(" ");
+
+      // Look for caption siblings (next then previous).
+      const siblingCaptions: string[] = [];
+      if (myIdx >= 0) {
+        for (let i = myIdx + 1; i < parentSiblings.length && i <= myIdx + 2; i++) {
+          if (isCaption(parentSiblings[i] as Record<string, unknown>)) {
+            siblingCaptions.push(textOf(parentSiblings[i] as Record<string, unknown>));
+          }
+        }
+        for (let i = myIdx - 1; i >= 0 && i >= myIdx - 2; i--) {
+          if (isCaption(parentSiblings[i] as Record<string, unknown>)) {
+            siblingCaptions.push(textOf(parentSiblings[i] as Record<string, unknown>));
+          }
+        }
+      }
+
+      const caption = `${childCaption} ${siblingCaptions.join(" ")}`.trim();
+      for (const fn of filenames) {
+        out.push({ filename: fn, caption });
+      }
+    }
+
+    // Recurse into children.
+    const children = n["children"];
+    if (Array.isArray(children)) {
+      for (const child of children) walk(child, children);
+    }
+  }
+
+  // Top-level walk: treat the json root's children as the first sibling list.
+  const root = json as Record<string, unknown>;
+  const topChildren = Array.isArray(root["children"]) ? root["children"] : [];
+  walk(json, topChildren);
+
+  // Extra pass: if Picture blocks were rendered as a standalone <img> elsewhere
+  // in the html (no Picture wrapper), scan all blocks for img + caption pairs.
+  void SRC_RE;
+  return out;
+}
+
+/**
+ * Fallback: match each image filename to a caption using a windowed text
+ * search over the markdown / HTML. Marker's markdown places captions on the
+ * line immediately before or after `![](filename)`.
+ */
+function captionsFromText(
+  filenames: string[],
+  markdown: string | null | undefined,
+  html: string | null | undefined,
+): CaptionedImage[] {
+  const out: CaptionedImage[] = [];
+  for (const fn of filenames) {
+    const captions: string[] = [];
+    for (const corpus of [markdown, html]) {
+      if (!corpus) continue;
+      const idx = corpus.indexOf(fn);
+      if (idx < 0) continue;
+      const before = corpus.slice(Math.max(0, idx - 400), idx);
+      const after = corpus.slice(idx + fn.length, idx + fn.length + 400);
+      captions.push(`${stripHtml(after)} ${stripHtml(before)}`);
+    }
+    out.push({ filename: fn, caption: captions.join(" ") });
+  }
+  return out;
+}
+
+/**
+ * Score a caption: large positive for portrait keywords, large negative for
+ * known non-portrait keywords (QR code, logo, signature, …).
+ */
+function scoreCaption(caption: string): number {
+  let score = 0;
+  if (PORTRAIT_RE.test(caption)) score += 1000;
+  if (NON_PORTRAIT_RE.test(caption)) score -= 1000;
+  return score;
 }
 
 /**
@@ -294,41 +419,93 @@ function findCaptionForImage(
  *
  * Aadhaar PDFs typically contain four pictures: the State Emblem, the UIDAI
  * Aadhaar logo, the QR code, and the cardholder's portrait. The QR code is
- * usually the biggest by raw byte count, so a "biggest wins" heuristic
- * actually picks the wrong one.
+ * usually the biggest by raw byte count, so a naive "biggest wins" heuristic
+ * picks the wrong one.
  *
- * Datalab Marker labels each picture with a short Caption block in both the
- * HTML and the markdown (e.g. "Portrait photo", "QR code"). We score each
- * image by its caption — strong positive for portrait/photo keywords, strong
- * negative for QR/logo/signature/emblem keywords — then fall back to file
- * size as a tiebreaker.
+ * Strategy:
+ * 1. Use Marker's structured block tree (most reliable) to pair each Picture
+ *    block with its Caption sibling.
+ * 2. Fall back to a windowed text search in the markdown / HTML.
+ * 3. If nothing labels the images, fall back to picking the image with an
+ *    aspect ratio + size profile most consistent with a portrait JPEG, with
+ *    a hard penalty for very-large PNGs (which are almost always QR codes).
  */
 function pickPortrait(
   images: ProfileImage[] | undefined,
   markdown: string | null | undefined,
   html: string | null | undefined,
+  markerJson: unknown,
 ): { base64: string; mimeType: string } | undefined {
   if (!images || images.length === 0) return undefined;
 
-  const PORTRAIT_RE = /\b(portrait|photo|photograph|cardholder|face|person)\b/i;
-  const NON_PORTRAIT_RE =
-    /\b(qr\s*code|qrcode|barcode|logo|signature|emblem|ashoka|state\s*emblem|hologram)\b/i;
+  // Build {filename -> caption} from the most reliable source available.
+  const fromBlocks = captionsFromMarkerBlocks(markerJson);
+  const fromText = captionsFromText(
+    images.map((i) => i.name),
+    markdown,
+    html,
+  );
 
-  let best: { img: ProfileImage; score: number } | null = null;
+  const captionByFile = new Map<string, string>();
+  for (const c of fromText) {
+    if (c.caption) captionByFile.set(c.filename, c.caption);
+  }
+  // Block-derived captions take precedence over windowed text matches.
+  for (const c of fromBlocks) {
+    if (c.caption) captionByFile.set(c.filename, c.caption);
+  }
+
+  // Score each image. PNG files in an Aadhaar are almost always QR codes /
+  // logos (the portrait is a JPEG photograph), so we add a strong implicit
+  // prior against PNGs when no caption disambiguates.
+  let best: { img: ProfileImage; score: number; caption: string } | null = null;
   for (const img of images) {
-    const caption = `${findCaptionForImage(markdown, img.name)} ${findCaptionForImage(html, img.name)}`;
-    let score = 0;
-    if (PORTRAIT_RE.test(caption)) score += 1000;
-    if (NON_PORTRAIT_RE.test(caption)) score -= 1000;
-    // Tiebreaker for unlabeled images: prefer a moderately-sized image. QR
-    // codes are extremely dense PNGs (often the largest payload), so we use
-    // log of size instead of raw size.
-    score += Math.log10(img.base64.length + 1);
-    if (!best || score > best.score) best = { img, score };
+    const caption = captionByFile.get(img.name) ?? "";
+    let score = scoreCaption(caption);
+
+    // Format prior: portraits are JPEGs, QR codes / logos are PNGs.
+    if (img.mimeType === "image/png") score -= 50;
+    if (img.mimeType === "image/jpeg" || img.mimeType === "image/jpg") score += 25;
+
+    // Mild size tiebreaker — but capped, so a giant QR code can't out-score
+    // a properly labeled portrait.
+    score += Math.min(10, Math.log10(img.base64.length + 1));
+
+    if (!best || score > best.score) best = { img, score, caption };
   }
 
   if (!best) return undefined;
   return { base64: best.img.base64, mimeType: best.img.mimeType };
+}
+
+/** Exposed for unit tests / route logging. */
+export function debugPickPortraitDecision(
+  images: ProfileImage[] | undefined,
+  markdown: string | null | undefined,
+  html: string | null | undefined,
+  markerJson: unknown,
+): Array<{ filename: string; caption: string; score: number; mimeType: string; bytes: number }> {
+  if (!images || images.length === 0) return [];
+  const fromBlocks = captionsFromMarkerBlocks(markerJson);
+  const fromText = captionsFromText(images.map((i) => i.name), markdown, html);
+  const captionByFile = new Map<string, string>();
+  for (const c of fromText) if (c.caption) captionByFile.set(c.filename, c.caption);
+  for (const c of fromBlocks) if (c.caption) captionByFile.set(c.filename, c.caption);
+
+  return images.map((img) => {
+    const caption = captionByFile.get(img.name) ?? "";
+    let score = scoreCaption(caption);
+    if (img.mimeType === "image/png") score -= 50;
+    if (img.mimeType === "image/jpeg" || img.mimeType === "image/jpg") score += 25;
+    score += Math.min(10, Math.log10(img.base64.length + 1));
+    return {
+      filename: img.name,
+      caption: caption.slice(0, 120),
+      score,
+      mimeType: img.mimeType,
+      bytes: img.base64.length,
+    };
+  });
 }
 
 /**
@@ -360,7 +537,27 @@ export function mapExtractionToSection(
       // photo and a fixed list of identity fields — no raw OCR text, no full
       // HTML rendering, and no other Datalab-extracted images (logo,
       // signature, …).
-      const portrait = pickPortrait(images, markdown, marker?.html);
+      const portrait = pickPortrait(
+        images,
+        markdown,
+        marker?.html,
+        marker?.json,
+      );
+      // Diagnostic log so a misclassified portrait is debuggable from server
+      // logs without having to re-run the upload.
+      if (images && images.length > 0) {
+        const decisions = debugPickPortraitDecision(
+          images,
+          markdown,
+          marker?.html,
+          marker?.json,
+        );
+        // eslint-disable-next-line no-console
+        console.log(
+          "[aadhar.pickPortrait]",
+          JSON.stringify({ chosen: portrait ? images.find((i) => i.base64 === portrait.base64)?.name : null, decisions }, null, 2),
+        );
+      }
       const data: AadharSubdoc = stripUndefined({
         name: nonEmpty(fields["full_name"]),
         aadhaarNumber: nonEmpty(fields["aadhaar_number"]),

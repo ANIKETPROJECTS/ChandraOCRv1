@@ -276,7 +276,11 @@ async function persistToProfile(
   docDef: DocumentTypeDef,
   presented: PresentedDocument | null,
   markdown: string | null,
-  marker: { html: string | null; images: Record<string, string> | null } | null,
+  marker: {
+    html: string | null;
+    images: Record<string, string> | null;
+    json?: unknown;
+  } | null,
 ): Promise<{ saved: boolean; section: string | null; error: string | null }> {
   if (!meta.profilePhone) {
     return { saved: false, section: null, error: null };
@@ -482,7 +486,9 @@ router.get("/extract/:requestId", async (req, res): Promise<void> => {
     docDef,
     structured,
     marker?.markdown ?? null,
-    marker ? { html: marker.html, images: marker.images } : null,
+    marker
+      ? { html: marker.html, images: marker.images, json: marker.json }
+      : null,
   );
   if (persisted.error) {
     logger.warn({ err: persisted.error, phone: meta.profilePhone }, "Profile save failed");
