@@ -33,7 +33,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=8080 pnpm --filter @workspace/api-server run dev"
+args = "node scripts/with-app-env.mjs api-server pnpm --filter @workspace/api-server run dev"
 waitForPort = 8080
 
 [[workflows.workflow]]
@@ -41,11 +41,11 @@ name = "Document Extractor"
 author = "agent"
 
 [workflows.workflow.metadata]
-outputType = "webview"
+outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=21926 BASE_PATH=/ pnpm --filter @workspace/doc-extractor run dev"
+args = "node scripts/with-app-env.mjs doc-extractor pnpm --filter @workspace/doc-extractor run dev"
 
 [agent]
 stack = "BEST_EFFORT_FALLBACK"
@@ -64,10 +64,6 @@ localPort = 8080
 externalPort = 8080
 
 [[ports]]
-localPort = 8081
-externalPort = 80
-
-[[ports]]
 localPort = 21926
 externalPort = 3000
 
@@ -77,6 +73,3 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-MONGODB_URI = "mongodb+srv://sairajkoyande_db_user:5QlrqFxJrJmM9rR4@cluster0.akmevxg.mongodb.net/?appName=Cluster0"
-MONGODB_DB = "apnaapp"
-DATALAB_API_KEY = "Zgtv3ZTMRajX5sv5v9EqD81nsdUH0rfPwlWJd3SorTI"
