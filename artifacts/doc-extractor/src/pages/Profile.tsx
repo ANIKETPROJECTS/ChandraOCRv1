@@ -104,9 +104,9 @@ const SECTIONS: SectionMeta[] = [
       state: "State",
       mobileNumber: "Mobile Number",
       issueDate: "Issue Date",
+      enrolmentNumber: "Enrolment No.",
       photoBase64: "Photo (base64)",
       photoMimeType: "Photo Format",
-      rawText: "Raw OCR Text",
     },
   },
   {

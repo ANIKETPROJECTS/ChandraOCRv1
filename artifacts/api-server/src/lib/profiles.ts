@@ -76,13 +76,9 @@ export interface AadharSubdoc {
   state?: string;
   mobileNumber?: string;
   issueDate?: string;
+  enrolmentNumber?: string;
   photoBase64?: string;
   photoMimeType?: string;
-  rawText?: string;
-  /** Full HTML rendering of the document from Datalab Marker. */
-  html?: string;
-  /** Every picture extracted from the document, keyed by Datalab filename. */
-  images?: ProfileImage[];
 }
 
 export interface PassbookTransaction {
@@ -310,6 +306,10 @@ export function mapExtractionToSection(
 
   switch (section) {
     case "aadhar": {
+      // Per product requirements, the Aadhaar profile keeps only the portrait
+      // photo and a fixed list of identity fields — no raw OCR text, no full
+      // HTML rendering, and no other Datalab-extracted images (logo,
+      // signature, …).
       const portrait = pickPortrait(images);
       const data: AadharSubdoc = stripUndefined({
         name: nonEmpty(fields["full_name"]),
@@ -323,11 +323,9 @@ export function mapExtractionToSection(
         state: nonEmpty(fields["state"]),
         mobileNumber: nonEmpty(fields["mobile_number"]),
         issueDate: nonEmpty(fields["issue_date"]),
+        enrolmentNumber: nonEmpty(fields["enrolment_number"]),
         photoBase64: portrait?.base64,
         photoMimeType: portrait?.mimeType,
-        rawText,
-        html,
-        images,
       });
       return { section, data };
     }

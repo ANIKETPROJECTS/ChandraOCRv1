@@ -408,6 +408,14 @@ const AADHAR: DocumentTypeDef = {
       type: "string",
       section: "Document",
     },
+    {
+      key: "enrolment_number",
+      label: "Enrolment No.",
+      description:
+        "Enrolment Number / नामांकन क्रम printed on the Aadhaar letter (typically formatted like 0855/04021/00568).",
+      type: "string",
+      section: "Document",
+    },
   ],
   tables: [],
 };
